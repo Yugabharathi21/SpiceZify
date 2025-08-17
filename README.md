@@ -1,11 +1,12 @@
 # SPiceZify - Electron Music Player
 
-A beautiful, Spotify-inspired music player for local audio files with real-time collaborative features.
+A beautiful, Spotify-inspired music player for local audio files with real-time collaborative features and advanced album management.
 
 ![SPiceZify Screenshot](docs/screenshot.png)
 
-## ✨ Features
+## ✨ Key Features
 
+- **Advanced Album System**: Complete album management with metadata, covers, and duplicate prevention
 - **Local Music Library**: Scan and organize your music collection with automatic metadata extraction
 - **Spotify-Style UI**: Clean, modern interface with dark theme and smooth animations
 - **Real-time Play Together**: Synchronized listening sessions with friends
@@ -27,8 +28,8 @@ A beautiful, Spotify-inspired music player for local audio files with real-time 
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-username/spicezify.git
-   cd spicezify
+   git clone https://github.com/Yugabharathi21/SpiceZify.git
+   cd SpiceZify
    ```
 
 2. **Install dependencies**
@@ -42,10 +43,69 @@ A beautiful, Spotify-inspired music player for local audio files with real-time 
    # Edit .env with your Supabase credentials
    ```
 
-4. **Start development**
+4. **Set up database** (2 simple steps)
+   - Go to your Supabase dashboard → SQL Editor
+   - Run `database_final.sql` → Run `database_albums_enhancement.sql`
+   - ✅ Automatic duplicate album fix included!
+
+5. **Start development**
    ```bash
    npm run dev
    ```
+
+## 📚 Complete Documentation
+
+For comprehensive documentation including database setup, album system details, API reference, and troubleshooting, see:
+
+**📖 [DOCUMENTATION.md](./DOCUMENTATION.md)**
+
+This includes:
+- 🚀 **Quick Start Guide** - Get up and running fast
+- 🗄️ **Database Setup** - Automated 2-step process with duplicate fixing
+- 🎨 **Album System** - Complete album management features
+- 🔧 **Duplicate Albums Fix** - Automated prevention and cleanup
+- 🏗️ **Architecture** - Technical details and project structure
+- 🛠️ **Development Guide** - Contributing and development setup
+- 🔌 **API Reference** - Complete API documentation
+- 🚨 **Troubleshooting** - Common issues and solutions
+
+## 🎵 Supported Audio Formats
+
+- **MP3** - MPEG Audio Layer III
+- **FLAC** - Free Lossless Audio Codec  
+- **M4A/MP4** - MPEG-4 Audio
+- **OGG** - Ogg Vorbis
+- **WAV** - Waveform Audio
+- **AAC** - Advanced Audio Coding
+
+## 🏗️ Architecture Overview
+
+```
+spicezify/
+├── src/
+│   ├── main/           # Electron main process (file scanning, database)
+│   ├── preload/        # Preload scripts (secure IPC bridge)
+│   └── renderer/       # React UI (components, pages, stores)
+├── database_final.sql  # Main database schema + duplicate fix
+├── database_albums_enhancement.sql # Album system enhancement
+└── DOCUMENTATION.md    # Complete documentation
+```
+
+## 🔧 Key Technologies
+
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Framer Motion
+- **Desktop**: Electron 29+, better-sqlite3, music-metadata
+- **State Management**: Zustand
+- **Real-time**: Socket.IO, Supabase Realtime  
+- **Database**: SQLite (local) + PostgreSQL (cloud via Supabase)
+
+## ✅ What's New
+
+- **🎨 Complete Album System**: Beautiful album pages with metadata and track management
+- **🔧 Automatic Duplicate Fix**: No more duplicate albums - fixed automatically during setup
+- **📚 Unified Documentation**: All guides consolidated into single comprehensive document
+- **🚀 Simplified Setup**: Just 2 database scripts instead of multiple separate files
+- **💾 Enhanced Database**: UUID-based schema with proper relationships and constraints
 
 ### Building for Production
 
@@ -145,35 +205,22 @@ chat_messages (id, room_id, user_id, content, ...)
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Follow the guidelines in [DOCUMENTATION.md](./DOCUMENTATION.md#development-guide)
+4. Submit a Pull Request
 
-### Development Guidelines
+## 📞 Support
 
-- Use TypeScript for all new code
-- Follow the existing code style (ESLint + Prettier)
-- Write tests for new features
-- Update documentation as needed
-- Keep file sizes under 300 lines when possible
+- 🐛 [Report Bug](https://github.com/Yugabharathi21/SpiceZify/issues)
+- 💡 [Request Feature](https://github.com/Yugabharathi21/SpiceZify/issues)
+- 💬 [Discussions](https://github.com/Yugabharathi21/SpiceZify/discussions)
+- 📖 [Full Documentation](./DOCUMENTATION.md)
 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
-
-- Inspired by Spotify's excellent user experience
-- Built with the amazing Electron and React ecosystems
-- Music metadata parsing by [music-metadata](https://github.com/borewit/music-metadata)
-- Icons by [Lucide React](https://lucide.dev/)
-
-## 📞 Support
-
-- 🐛 [Report Bug](https://github.com/your-username/spicezify/issues)
-- 💡 [Request Feature](https://github.com/your-username/spicezify/issues)
-- 💬 [Discussions](https://github.com/your-username/spicezify/discussions)
-
 ---
 
 **SPiceZify** - Made with ❤️ for music lovers who want to own their listening experience.
+
+*For detailed setup instructions, API reference, and development guide, see [DOCUMENTATION.md](./DOCUMENTATION.md)*

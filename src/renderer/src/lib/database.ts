@@ -1,6 +1,14 @@
 import { supabase } from './supabase';
 import type {
   Profile,
+  Artist,
+  Album,
+  Track,
+  ArtistWithStats,
+  ArtistWithPopularTracks,
+  AlbumWithArtist,
+  TrackWithDetails,
+  PopularTrack,
   Preferences,
   Conversation,
   ConversationParticipant,
@@ -9,6 +17,12 @@ import type {
   CreateConversationInput,
   CreateMessageInput,
   UpdateProfileInput,
+  CreateArtistInput,
+  UpdateArtistInput,
+  CreateAlbumInput,
+  UpdateAlbumInput,
+  ArtistFavorite,
+  AlbumFavorite
 } from '../types/database';
 
 // Database response type
@@ -497,4 +511,418 @@ export function subscribeToUserConversations(
   return () => {
     supabase.removeChannel(channel);
   };
+}
+
+// ------------------------------------------------------------------
+// Artist operations
+// ------------------------------------------------------------------
+
+export async function getArtists(): Promise<{ data: ArtistWithStats[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artists_with_stats')
+      .select('*')
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('[db] getArtists error', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getArtists exception', err);
+    return { data: null, error: message };
+  }
+}
+
+export async function getArtist(id: string): Promise<{ data: Artist | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artists')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return { data: null, error: null }; // No rows returned
+      console.error('[db] getArtist error', { id, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getArtist exception', { id, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function getArtistWithStats(id: string): Promise<{ data: ArtistWithStats | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artists_with_stats')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return { data: null, error: null }; // No rows returned
+      console.error('[db] getArtistWithStats error', { id, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getArtistWithStats exception', { id, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function getArtistWithPopularTracks(id: string): Promise<{ data: ArtistWithPopularTracks | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artist_popular_tracks')
+      .select('*')
+      .eq('artist_id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return { data: null, error: null }; // No rows returned
+      console.error('[db] getArtistWithPopularTracks error', { id, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getArtistWithPopularTracks exception', { id, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function createArtist(input: CreateArtistInput): Promise<{ data: Artist | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artists')
+      .insert([input])
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[db] createArtist error', { input, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] createArtist exception', { input, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function updateArtist(id: string, updates: UpdateArtistInput): Promise<{ data: Artist | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artists')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[db] updateArtist error', { id, updates, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] updateArtist exception', { id, updates, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function deleteArtist(id: string): Promise<{ error: string | null }> {
+  try {
+    const { error } = await supabase
+      .from('artists')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('[db] deleteArtist error', { id, error });
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] deleteArtist exception', { id, err });
+    return { error: message };
+  }
+}
+
+// Artist Favorites
+export async function getArtistFavorites(userId: string): Promise<{ data: ArtistFavorite[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artist_favorites')
+      .select('*, artists(*)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('[db] getArtistFavorites error', { userId, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getArtistFavorites exception', { userId, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function addArtistFavorite(userId: string, artistId: string): Promise<{ data: ArtistFavorite | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artist_favorites')
+      .insert([{ user_id: userId, artist_id: artistId }])
+      .select('*, artists(*)')
+      .single();
+
+    if (error) {
+      console.error('[db] addArtistFavorite error', { userId, artistId, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] addArtistFavorite exception', { userId, artistId, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function removeArtistFavorite(userId: string, artistId: string): Promise<{ error: string | null }> {
+  try {
+    const { error } = await supabase
+      .from('artist_favorites')
+      .delete()
+      .eq('user_id', userId)
+      .eq('artist_id', artistId);
+
+    if (error) {
+      console.error('[db] removeArtistFavorite error', { userId, artistId, error });
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] removeArtistFavorite exception', { userId, artistId, err });
+    return { error: message };
+  }
+}
+
+export async function isArtistFavorited(userId: string, artistId: string): Promise<{ data: boolean; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('artist_favorites')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('artist_id', artistId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('[db] isArtistFavorited error', { userId, artistId, error });
+      return { data: false, error: error.message };
+    }
+
+    return { data: !!data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] isArtistFavorited exception', { userId, artistId, err });
+    return { data: false, error: message };
+  }
+}
+
+// ------------------------------------------------------------------
+// Album operations
+// ------------------------------------------------------------------
+
+export async function getAlbums(): Promise<{ data: AlbumWithArtist[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('albums')
+      .select('*, artists(id, name)')
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('[db] getAlbums error', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getAlbums exception', err);
+    return { data: null, error: message };
+  }
+}
+
+export async function getAlbum(id: string): Promise<{ data: Album | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('albums')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return { data: null, error: null }; // No rows returned
+      console.error('[db] getAlbum error', { id, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getAlbum exception', { id, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function getAlbumWithArtist(id: string): Promise<{ data: AlbumWithArtist | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('albums')
+      .select('*, artists(id, name)')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return { data: null, error: null }; // No rows returned
+      console.error('[db] getAlbumWithArtist error', { id, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getAlbumWithArtist exception', { id, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function getAlbumsByArtist(artistId: string): Promise<{ data: AlbumWithArtist[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('albums')
+      .select('*, artists(id, name)')
+      .eq('artist_id', artistId)
+      .order('release_date', { ascending: false });
+
+    if (error) {
+      console.error('[db] getAlbumsByArtist error', { artistId, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getAlbumsByArtist exception', { artistId, err });
+    return { data: null, error: message };
+  }
+}
+
+// ------------------------------------------------------------------
+// Track operations
+// ------------------------------------------------------------------
+
+export async function getTracks(): Promise<{ data: TrackWithDetails[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('tracks')
+      .select('*, albums(id, name, cover_url), artists(id, name)')
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('[db] getTracks error', error);
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getTracks exception', err);
+    return { data: null, error: message };
+  }
+}
+
+export async function getTracksByAlbum(albumId: string): Promise<{ data: TrackWithDetails[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('tracks')
+      .select('*, albums(id, name, cover_url), artists(id, name)')
+      .eq('album_id', albumId)
+      .order('track_number', { ascending: true });
+
+    if (error) {
+      console.error('[db] getTracksByAlbum error', { albumId, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getTracksByAlbum exception', { albumId, err });
+    return { data: null, error: message };
+  }
+}
+
+export async function getTracksByArtist(artistId: string): Promise<{ data: TrackWithDetails[] | null; error: string | null }> {
+  try {
+    const { data, error } = await supabase
+      .from('tracks')
+      .select('*, albums(id, name, cover_url), artists(id, name)')
+      .eq('artist_id', artistId)
+      .order('name', { ascending: true });
+
+    if (error) {
+      console.error('[db] getTracksByArtist error', { artistId, error });
+      return { data: null, error: error.message };
+    }
+
+    return { data: data || [], error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] getTracksByArtist exception', { artistId, err });
+    return { data: null, error: message };
+  }
+}
+
+// Artist Play History
+export async function recordArtistPlay(userId: string, artistId: string): Promise<{ error: string | null }> {
+  try {
+    const { error } = await supabase
+      .from('artist_plays')
+      .insert([{ user_id: userId, artist_id: artistId }]);
+
+    if (error) {
+      console.error('[db] recordArtistPlay error', { userId, artistId, error });
+      return { error: error.message };
+    }
+
+    return { error: null };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    console.error('[db] recordArtistPlay exception', { userId, artistId, err });
+    return { error: message };
+  }
 }

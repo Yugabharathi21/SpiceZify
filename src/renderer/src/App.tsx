@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import Home from './pages/Home';
 import Search from './pages/Search';
 import Library from './pages/Library';
+import Album from './pages/Album';
 import PlayTogether from './pages/PlayTogether';
 import Settings from './pages/Settings';
 import { useAuthStore } from './stores/useAuthStore';
@@ -59,6 +60,7 @@ function App() {
           { index: true, element: <Home /> },
           { path: 'search', element: <Search /> },
           { path: 'library', element: <Library /> },
+          { path: 'album/:albumId', element: <Album /> },
           { path: 'play-together', element: <PlayTogether /> },
           { path: 'play-together/:roomId', element: <PlayTogether /> },
           { path: 'settings', element: <Settings /> },

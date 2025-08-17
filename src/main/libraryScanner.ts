@@ -82,7 +82,7 @@ export class LibraryScanner {
       // Check if file already exists
       const existingTrack = this.database.prepare(
         'SELECT id, hash FROM tracks WHERE path = ?'
-      ).get(filePath);
+      ).get(filePath) as { id: number; hash: string } | undefined;
       
       if (existingTrack && existingTrack.hash === fileHash) {
         return 'skipped'; // File hasn't changed
@@ -161,10 +161,13 @@ export class LibraryScanner {
   }
 
   private getOrCreateArtist(name: string): number {
-    let artist = this.database.prepare('SELECT id FROM artists WHERE name = ?').get(name);
+    const normalizedName = name.trim().toUpperCase();
+    const artist = this.database.prepare('SELECT id FROM artists WHERE normalized_name = ?').get(normalizedName) as { id: number } | undefined;
     
     if (!artist) {
-      const result = this.database.prepare('INSERT INTO artists (name) VALUES (?)').run(name);
+      const result = this.database.prepare(
+        'INSERT INTO artists (name, normalized_name) VALUES (?, ?)'
+      ).run(name.trim(), normalizedName);
       return result.lastInsertRowid as number;
     }
     
@@ -172,14 +175,15 @@ export class LibraryScanner {
   }
 
   private getOrCreateAlbum(name: string, artistId: number, year?: number): number {
-    let album = this.database.prepare(
-      'SELECT id FROM albums WHERE name = ? AND artist_id = ?'
-    ).get(name, artistId);
+    const normalizedName = name.trim().toUpperCase();
+    const album = this.database.prepare(
+      'SELECT id FROM albums WHERE normalized_name = ? AND artist_id = ?'
+    ).get(normalizedName, artistId) as { id: number } | undefined;
     
     if (!album) {
       const result = this.database.prepare(
-        'INSERT INTO albums (name, artist_id, year) VALUES (?, ?, ?)'
-      ).run(name, artistId, year);
+        'INSERT INTO albums (name, normalized_name, artist_id, year) VALUES (?, ?, ?, ?)'
+      ).run(name.trim(), normalizedName, artistId, year);
       return result.lastInsertRowid as number;
     }
     

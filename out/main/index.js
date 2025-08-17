@@ -269,21 +269,25 @@ class LibraryScanner {
     return crypto.createHash("sha1").update(`${path2}:${size}:${mtime.getTime()}`).digest("hex");
   }
   getOrCreateArtist(name) {
-    let artist = this.database.prepare("SELECT id FROM artists WHERE name = ?").get(name);
+    const normalizedName = name.trim().toUpperCase();
+    const artist = this.database.prepare("SELECT id FROM artists WHERE normalized_name = ?").get(normalizedName);
     if (!artist) {
-      const result = this.database.prepare("INSERT INTO artists (name) VALUES (?)").run(name);
+      const result = this.database.prepare(
+        "INSERT INTO artists (name, normalized_name) VALUES (?, ?)"
+      ).run(name.trim(), normalizedName);
       return result.lastInsertRowid;
     }
     return artist.id;
   }
   getOrCreateAlbum(name, artistId, year) {
-    let album = this.database.prepare(
-      "SELECT id FROM albums WHERE name = ? AND artist_id = ?"
-    ).get(name, artistId);
+    const normalizedName = name.trim().toUpperCase();
+    const album = this.database.prepare(
+      "SELECT id FROM albums WHERE normalized_name = ? AND artist_id = ?"
+    ).get(normalizedName, artistId);
     if (!album) {
       const result = this.database.prepare(
-        "INSERT INTO albums (name, artist_id, year) VALUES (?, ?, ?)"
-      ).run(name, artistId, year);
+        "INSERT INTO albums (name, normalized_name, artist_id, year) VALUES (?, ?, ?, ?)"
+      ).run(name.trim(), normalizedName, artistId, year);
       return result.lastInsertRowid;
     }
     return album.id;
