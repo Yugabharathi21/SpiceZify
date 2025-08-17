@@ -12,7 +12,12 @@ export default function AuthPage() {
     displayName: ''
   });
 
-  const { login, signup, isLoading } = useAuthStore();
+  const { login, signup, isLoading, error, clearError } = useAuthStore();
+
+  const handleModeSwitch = (newMode: 'login' | 'signup') => {
+    setMode(newMode);
+    clearError?.(); // Clear any existing errors when switching modes
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,8 +35,17 @@ export default function AuthPage() {
         await signup(formData.email, formData.password, formData.displayName);
         toast.success('Account created successfully!');
       }
-    } catch (error) {
-      toast.error(mode === 'login' ? 'Login failed' : 'Signup failed');
+    } catch (authError) {
+      console.error('Auth error:', authError);
+      if (authError instanceof Error) {
+        if (authError.message.includes('500') || authError.message.includes('Internal')) {
+          toast.warning('Using offline mode - some features may be limited');
+        } else {
+          toast.error(authError.message);
+        }
+      } else {
+        toast.error('Authentication failed');
+      }
     }
   };
 
@@ -65,7 +79,7 @@ export default function AuthPage() {
           <div className="flex mb-6">
             <button
               type="button"
-              onClick={() => setMode('login')}
+              onClick={() => handleModeSwitch('login')}
               className={`flex-1 py-2 text-sm font-medium transition-colors ${
                 mode === 'login'
                   ? 'text-primary border-b-2 border-primary'
@@ -76,7 +90,7 @@ export default function AuthPage() {
             </button>
             <button
               type="button"
-              onClick={() => setMode('signup')}
+              onClick={() => handleModeSwitch('signup')}
               className={`flex-1 py-2 text-sm font-medium transition-colors ${
                 mode === 'signup'
                   ? 'text-primary border-b-2 border-primary'
@@ -143,6 +157,20 @@ export default function AuthPage() {
               </div>
             </div>
 
+            {/* Error Display */}
+            {error && (
+              <div className={`p-3 rounded-lg text-sm ${
+                error.includes('500') || error.includes('offline') || error.includes('Database') || error.includes('database')
+                  ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
+              }`}>
+                {error.includes('500') || error.includes('offline') || error.includes('Database') || error.includes('database')
+                  ? '⚠️ Using offline mode - You can still access all music features!'
+                  : `❌ ${error}`
+                }
+              </div>
+            )}
+
             <button
               type="submit"
               disabled={isLoading}
@@ -164,7 +192,7 @@ export default function AuthPage() {
               {mode === 'login' ? "Don't have an account? " : "Already have an account? "}
               <button
                 type="button"
-                onClick={() => setMode(mode === 'login' ? 'signup' : 'login')}
+                onClick={() => handleModeSwitch(mode === 'login' ? 'signup' : 'login')}
                 className="text-primary hover:underline font-medium"
               >
                 {mode === 'login' ? 'Sign up' : 'Sign in'}

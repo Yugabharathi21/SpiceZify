@@ -22,6 +22,12 @@ interface DbResponse<T> {
 // ------------------------------------------------------------------
 
 export async function createProfile(userId: string, profileData: Partial<Profile>): Promise<DbResponse<Profile>> {
+  // Skip profile creation for temporary offline users
+  if (userId.startsWith('temp-')) {
+    console.log('[db] Skipping profile creation for offline user');
+    return { data: { user_id: userId, ...profileData } as Profile, error: null };
+  }
+
   try {
     const { data, error } = await supabase
       .from('profiles')
@@ -118,6 +124,12 @@ export async function searchProfiles(query: string, limit = 10): Promise<DbRespo
 // ------------------------------------------------------------------
 
 export async function fetchUserPreferences(userId: string): Promise<DbResponse<Record<string, unknown>>> {
+  // Return empty preferences for temporary offline users
+  if (userId.startsWith('temp-')) {
+    console.log('[db] Returning empty preferences for offline user');
+    return { data: {}, error: null };
+  }
+
   try {
     const { data, error } = await supabase
       .from('preferences')
@@ -143,6 +155,12 @@ export async function fetchUserPreferences(userId: string): Promise<DbResponse<R
 }
 
 export async function upsertUserPreferences(userId: string, prefs: Record<string, unknown>): Promise<DbResponse<Preferences>> {
+  // Skip database operations for temporary offline users
+  if (userId.startsWith('temp-')) {
+    console.log('[db] Skipping preferences save for offline user');
+    return { data: { user_id: userId, data: prefs } as Preferences, error: null };
+  }
+
   const payload = { user_id: userId, data: prefs };
   
   try {

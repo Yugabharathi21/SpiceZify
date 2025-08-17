@@ -410,7 +410,7 @@ class CoverCache {
       }
       await promises.mkdir(this.cacheDir, { recursive: true });
     } catch (error) {
-      console.error("Error creating cache directory:", error && error.code, error);
+      console.error("Error creating cache directory:", error.message);
     }
   }
   async getCoverForTrack(trackId) {
@@ -425,13 +425,19 @@ class CoverCache {
       }
       const metadata = await parseFileSafe(track.path);
       const picture = metadata.common.picture?.[0];
-      if (picture) {
-        await promises.writeFile(cachePath, picture.data);
-        return `data:${picture.format};base64,${picture.data.toString("base64")}`;
+      if (picture && picture.data) {
+        try {
+          await this.ensureCacheDir();
+          await promises.writeFile(cachePath, picture.data);
+          return `data:${picture.format || "image/jpeg"};base64,${picture.data.toString("base64")}`;
+        } catch (writeError) {
+          console.warn("Failed to cache cover, returning uncached version:", writeError.message);
+          return `data:${picture.format || "image/jpeg"};base64,${picture.data.toString("base64")}`;
+        }
       }
       return null;
     } catch (error) {
-      console.error("Error getting cover for track:", error);
+      console.error("Error getting cover for track:", error.message);
       return null;
     }
   }
@@ -660,6 +666,33 @@ function initializeIPC(mainWindow) {
     } catch (error) {
       console.error("Database query error:", error);
       throw error;
+    }
+  });
+  electron.ipcMain.handle("window:toggleFullscreen", async () => {
+    try {
+      const isFullscreen = mainWindow.isFullScreen();
+      mainWindow.setFullScreen(!isFullscreen);
+      return !isFullscreen;
+    } catch (error) {
+      console.error("Toggle fullscreen error:", error);
+      throw error;
+    }
+  });
+  electron.ipcMain.handle("window:exitFullscreen", async () => {
+    try {
+      mainWindow.setFullScreen(false);
+      return false;
+    } catch (error) {
+      console.error("Exit fullscreen error:", error);
+      throw error;
+    }
+  });
+  electron.ipcMain.handle("window:isFullscreen", async () => {
+    try {
+      return mainWindow.isFullScreen();
+    } catch (error) {
+      console.error("Check fullscreen error:", error);
+      return false;
     }
   });
 }

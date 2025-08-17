@@ -16,6 +16,10 @@ const electronAPI = {
   getPlaylistTracks: (playlistId) => electron.ipcRenderer.invoke("playlist:getTracks", playlistId),
   // Database
   query: (query, params) => electron.ipcRenderer.invoke("db:query", query, params),
+  // Window controls
+  toggleFullscreen: () => electron.ipcRenderer.invoke("window:toggleFullscreen"),
+  exitFullscreen: () => electron.ipcRenderer.invoke("window:exitFullscreen"),
+  isFullscreen: () => electron.ipcRenderer.invoke("window:isFullscreen"),
   // Events
   onScanProgress: (callback) => electron.ipcRenderer.on("library:scanProgress", (_, data) => callback(data)),
   removeAllListeners: (channel) => electron.ipcRenderer.removeAllListeners(channel)

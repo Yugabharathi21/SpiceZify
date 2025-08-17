@@ -21,7 +21,7 @@ export default function AlbumCover({ trackId, className = '', size = 'medium' }:
           setCoverUrl(cover);
         }
       } catch (error) {
-        console.error('Failed to load album cover:', error);
+        console.warn('Failed to load album cover for track', trackId, ':', (error as Error).message);
         if (isMounted) {
           setCoverUrl(null);
         }
@@ -32,7 +32,12 @@ export default function AlbumCover({ trackId, className = '', size = 'medium' }:
       }
     };
 
-    loadCover();
+    if (trackId > 0) {
+      loadCover();
+    } else {
+      setIsLoading(false);
+      setCoverUrl(null);
+    }
 
     return () => {
       isMounted = false;
