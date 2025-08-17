@@ -709,11 +709,29 @@ electron.app.whenReady().then(() => {
   electron.protocol.registerFileProtocol("spicezify-file", (request, callback) => {
     try {
       const urlObj = new URL(request.url);
-      let localPath = urlObj.pathname;
-      if (process.platform === "win32" && localPath.startsWith("/")) {
-        localPath = localPath.slice(1);
+      let localPath = "";
+      if (process.platform === "win32") {
+        const host = urlObj.hostname;
+        const pathname = urlObj.pathname || "";
+        if (/^[A-Za-z]$/.test(host) && pathname.startsWith("/")) {
+          localPath = `${host}:${pathname}`;
+        } else if (pathname.startsWith("/[A-Za-z]:")) {
+          localPath = pathname.slice(1);
+        } else if (pathname.startsWith("/")) {
+          localPath = pathname.slice(1);
+        } else {
+          localPath = pathname;
+        }
+      } else {
+        localPath = urlObj.pathname;
       }
       localPath = decodeURIComponent(localPath);
+      try {
+        const exists = fs.existsSync(localPath);
+        console.debug(`[spicezify-file] request.url=${request.url} -> localPath=${localPath} exists=${exists}`);
+      } catch {
+        console.debug(`[spicezify-file] request.url=${request.url} -> localPath=${localPath} (exists check failed)`);
+      }
       callback({ path: localPath });
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);

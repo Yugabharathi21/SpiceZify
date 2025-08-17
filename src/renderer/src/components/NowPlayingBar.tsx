@@ -20,11 +20,15 @@ import { upsertUserPreferences } from '../lib/supabase';
 
 export default function NowPlayingBar() {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const audioBRef = useRef<HTMLAudioElement>(null);
+  const activeIsARef = useRef(true);
+  const isDragging = false;
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
+  const gainBRef = useRef<GainNode | null>(null);
   const prevTrackRef = useRef<string | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
 
@@ -87,15 +91,15 @@ export default function NowPlayingBar() {
     return `spicezify-file:///${pathPortion}`;
   };
 
-  // Audio element event handlers
+  // Dual-audio element playback and crossfade handling
   useEffect(() => {
-    const audio = audioRef.current;
+    // Attach events to the currently active audio element (A or B)
+    const getActive = () => (activeIsARef.current ? audioRef.current : audioBRef.current);
+    const audio = getActive();
     if (!audio) return;
 
     const handleTimeUpdate = () => {
-      if (!isDragging) {
-        updateCurrentTime(audio.currentTime);
-      }
+      if (!isDragging) updateCurrentTime(audio.currentTime);
     };
 
     const handleLoadedMetadata = () => {
@@ -113,8 +117,7 @@ export default function NowPlayingBar() {
 
     const handleError = () => {
       try {
-        // Log detailed media error info
-  const err = audio.error;
+        const err = audio.error;
         console.error('Audio element error:', err, 'readyState:', audio.readyState, 'networkState:', audio.networkState);
       } catch (e) {
         console.error('Error reading audio error object', e);
@@ -124,59 +127,21 @@ export default function NowPlayingBar() {
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
-  audio.addEventListener('error', handleError);
+    audio.addEventListener('error', handleError);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
-  audio.removeEventListener('error', handleError);
+      audio.removeEventListener('error', handleError);
     };
   }, [isDragging, repeat, next, updateCurrentTime, updateDuration]);
 
-  // Sync audio playback with store state
+  // Initialize Web Audio API and create sources for both audio elements
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (currentTrack) {
-      const srcUrl = buildFileUrl(currentTrack.path);
-      if (audio.src !== srcUrl) {
-        console.debug('Assigning audio.src =', srcUrl);
-        audio.preload = 'auto';
-        audio.src = srcUrl;
-        console.debug('audio.readyState after src assign:', audio.readyState, 'audioContext.state:', audioContextRef.current?.state);
-      }
-      
-      if (isPlaying) {
-        const playAudio = async () => {
-          try {
-            console.debug('Attempting to play audio. audio.src:', audio.src, 'readyState:', audio.readyState, 'audioContext.state:', audioContextRef.current?.state);
-            if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-              console.debug('Resuming suspended AudioContext...');
-              await audioContextRef.current.resume();
-              console.debug('AudioContext state after resume:', audioContextRef.current.state);
-            }
-            const p = audio.play();
-            if (p && typeof p.then === 'function') {
-              await p;
-            }
-            console.debug('Play promise resolved. audio.paused:', audio.paused, 'currentTime:', audio.currentTime);
-          } catch (err) {
-            console.error('Audio play failed:', err, 'audio.error:', audio.error);
-          }
-        };
-        playAudio();
-      } else {
-        audio.pause();
-      }
-    }
-  }, [currentTrack, isPlaying]);
-
-  // Initialize Web Audio API when audio element mounts
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
+    const a = audioRef.current;
+    const b = audioBRef.current;
+    if (!a || !b) return;
 
     if (!audioContextRef.current) {
       const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
@@ -184,12 +149,18 @@ export default function NowPlayingBar() {
       if (!AcCtor) return;
       const ac = new AcCtor();
       audioContextRef.current = ac;
-      const source = ac.createMediaElementSource(audio);
-      sourceRef.current = source;
 
-      const gain = ac.createGain();
-      gain.gain.value = 1;
-      gainRef.current = gain;
+      const src = ac.createMediaElementSource(a);
+      const srcB = ac.createMediaElementSource(b);
+      sourceRef.current = src;
+      sourceBRef.current = srcB;
+
+      const gA = ac.createGain();
+      gA.gain.value = 1;
+      const gB = ac.createGain();
+      gB.gain.value = 0;
+      gainRef.current = gA;
+      gainBRef.current = gB;
 
       const compressor = ac.createDynamicsCompressor();
       compressor.threshold?.setValueAtTime(-24, ac.currentTime);
@@ -199,88 +170,120 @@ export default function NowPlayingBar() {
       compressor.release?.setValueAtTime(0.25, ac.currentTime);
       compressorRef.current = compressor;
 
-      // Connect: source -> compressor (if enabled) -> gain -> destination
-      source.connect(compressor);
-      compressor.connect(gain);
-      gain.connect(ac.destination);
+      src.connect(gA);
+      srcB.connect(gB);
+      gA.connect(compressor);
+      gB.connect(compressor);
+      compressor.connect(ac.destination);
     }
-
-    return () => {
-      // keep context alive for the session; optional cleanup could close it here
-    };
   }, []);
 
-  // Sync volume
+  // Sync audio playback with store state (use active audio element)
   useEffect(() => {
-    const audio = audioRef.current;
-    const gain = gainRef.current;
-    if (gain) {
-      const target = isMuted ? 0 : volume;
-      gain.gain.value = target;
-    } else if (audio) {
-      audio.volume = isMuted ? 0 : volume;
-    }
-  }, [volume, isMuted]);
+    const activeIsA = activeIsARef.current;
+    const activeEl = activeIsA ? audioRef.current : audioBRef.current;
+    const inactiveEl = activeIsA ? audioBRef.current : audioRef.current;
+    if (!activeEl || !inactiveEl) return;
 
-  // Apply normalize setting to compressor bypass
+    if (currentTrack) {
+      const srcUrl = buildFileUrl(currentTrack.path);
+      if (inactiveEl.src !== srcUrl) {
+        inactiveEl.preload = 'auto';
+        inactiveEl.src = srcUrl;
+      }
+
+      const playActive = async () => {
+        try {
+          if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+            await audioContextRef.current.resume();
+          }
+          if (isPlaying) {
+            const p = activeEl.play();
+            if (p && typeof p.then === 'function') await p;
+          } else {
+            activeEl.pause();
+          }
+        } catch (err) {
+          console.error('Audio play failed (active):', err, 'audio.error:', activeEl.error);
+        }
+      };
+
+      playActive();
+    }
+  }, [currentTrack, isPlaying]);
+
+  // Crossfade handling when currentTrack changes using the inactive audio element
   useEffect(() => {
-    const compressor = compressorRef.current;
-    if (!compressor) return;
-    if (normalizeVolume) {
-      compressor.threshold?.setValueAtTime(-20, audioContextRef.current!.currentTime);
-      compressor.ratio?.setValueAtTime(8, audioContextRef.current!.currentTime);
+    const ac = audioContextRef.current;
+    const gA = gainRef.current;
+    const gB = gainBRef.current;
+    if (!ac || !gA || !gB) return;
+
+    const prev = prevTrackRef.current;
+    if (prev && currentTrack && crossfade > 0) {
+      const activeIsA = activeIsARef.current;
+      const activeEl = activeIsA ? audioRef.current! : audioBRef.current!;
+      const inactiveEl = activeIsA ? audioBRef.current! : audioRef.current!;
+      const activeGain = activeIsA ? gA : gB;
+      const inactiveGain = activeIsA ? gB : gA;
+
+      const srcUrl = buildFileUrl(currentTrack.path);
+      if (inactiveEl.src !== srcUrl) {
+        inactiveEl.preload = 'auto';
+        inactiveEl.src = srcUrl;
+      }
+
+      const fadeDur = Math.min(Math.max(crossfade, 3), 5);
+      let started = false;
+
+      const startFade = () => {
+        if (started) return;
+        started = true;
+        const now = ac.currentTime;
+        activeGain.gain.cancelScheduledValues(now);
+        inactiveGain.gain.cancelScheduledValues(now);
+        activeGain.gain.setValueAtTime(activeGain.gain.value, now);
+        inactiveGain.gain.setValueAtTime(inactiveGain.gain.value, now);
+        activeGain.gain.linearRampToValueAtTime(0, now + fadeDur);
+        inactiveGain.gain.linearRampToValueAtTime(1, now + fadeDur);
+
+        inactiveEl.play().catch((e) => console.error('Crossfade inactive play error:', e));
+
+        window.setTimeout(() => {
+          try { activeEl.pause(); } catch (e) { console.debug('activeEl.pause ignored', e); }
+          activeIsARef.current = !activeIsA;
+          prevTrackRef.current = currentTrack ? buildFileUrl(currentTrack.path) : null;
+        }, fadeDur * 1000 + 200);
+      };
+
+      const onCanPlay = () => startFade();
+      const onError = (ev: Event) => {
+        console.error('Crossfade load error on inactive element:', ev);
+        try { activeEl.pause(); } catch (e) { console.debug('activeEl.pause ignored', e); }
+        activeIsARef.current = !activeIsA;
+        prevTrackRef.current = currentTrack ? buildFileUrl(currentTrack.path) : null;
+      };
+
+      inactiveEl.addEventListener('canplaythrough', onCanPlay, { once: true });
+      inactiveEl.addEventListener('loadedmetadata', onCanPlay, { once: true });
+      inactiveEl.addEventListener('error', onError, { once: true });
+
+      const fallback = window.setTimeout(() => startFade(), 5000);
+      window.setTimeout(() => {
+        try { inactiveEl.removeEventListener('canplaythrough', onCanPlay); } catch (e) { console.debug('removeEventListener ignored', e); }
+        try { inactiveEl.removeEventListener('loadedmetadata', onCanPlay); } catch (e) { console.debug('removeEventListener ignored', e); }
+        try { inactiveEl.removeEventListener('error', onError); } catch (e) { console.debug('removeEventListener ignored', e); }
+        clearTimeout(fallback);
+      }, (fadeDur + 6) * 1000);
     } else {
-      compressor.threshold?.setValueAtTime(-100, audioContextRef.current!.currentTime);
-      compressor.ratio?.setValueAtTime(1, audioContextRef.current!.currentTime);
+      prevTrackRef.current = currentTrack ? buildFileUrl(currentTrack.path) : null;
     }
-  }, [normalizeVolume]);
+  }, [currentTrack, crossfade]);
 
-  // Apply audio quality by adjusting playbackRate as a simple simulation
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-  // Map stored quality to simulated playbackRate
-  if (audioQuality === 'low') audio.playbackRate = 0.95;
-  else if (audioQuality === 'normal') audio.playbackRate = 1;
-  else if (audioQuality === 'high') audio.playbackRate = 1.02;
-  else audio.playbackRate = 1;
-  }, [audioQuality]);
-
-  // Persist settings to Supabase when user is present
-  useEffect(() => {
-    if (!user) return;
-    const prefs = { audioQuality, crossfade: crossfade > 0, normalizeVolume };
-    // fire-and-forget
-    upsertUserPreferences(user.id, prefs).catch(console.error);
-  }, [user, audioQuality, crossfade, normalizeVolume]);
-
-  // Handlers for UI controls
-  const cycleAudioQuality = () => {
-    if (audioQuality === 'low') setAudioQuality('normal');
-    else if (audioQuality === 'normal') setAudioQuality('high');
-    else setAudioQuality('low');
-  };
-
-  const toggleCrossfade = () => {
-    if (crossfade > 0) setCrossfade(0);
-    else setCrossfade(4);
-  };
-
-  const toggleNormalize = () => {
-    setNormalizeVolume(!normalizeVolume);
-  };
-
-  // Sync current time
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (audio && Math.abs(audio.currentTime - currentTime) > 1) {
-      audio.currentTime = currentTime;
-    }
-  }, [currentTime]);
-
+  // Helpers and UI handlers (restored from previous implementation)
   const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
+    const mins = Math.floor(seconds / 60) || 0;
+    const secs = Math.floor(seconds % 60) || 0;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
@@ -305,6 +308,21 @@ export default function NowPlayingBar() {
     }
   };
 
+  const cycleAudioQuality = () => {
+    if (audioQuality === 'low') setAudioQuality('normal');
+    else if (audioQuality === 'normal') setAudioQuality('high');
+    else setAudioQuality('low');
+  };
+
+  const toggleCrossfade = () => {
+    if (crossfade > 0) setCrossfade(0);
+    else setCrossfade(4);
+  };
+
+  const toggleNormalize = () => {
+    setNormalizeVolume(!normalizeVolume);
+  };
+
   const cycleRepeat = () => {
     const modes: Array<'none' | 'one' | 'all'> = ['none', 'all', 'one'];
     const currentIndex = modes.indexOf(repeat);
@@ -312,46 +330,12 @@ export default function NowPlayingBar() {
     setRepeat(modes[nextIndex]);
   };
 
-  // Crossfade handling when currentTrack changes
+  // Persist settings to Supabase when user is present
   useEffect(() => {
-    const ac = audioContextRef.current;
-    const gain = gainRef.current;
-    const audio = audioRef.current;
-    if (!ac || !gain || !audio) return;
-
-    const prev = prevTrackRef.current;
-    if (prev && currentTrack && crossfade > 0) {
-          const nextAudio = new Audio(buildFileUrl(currentTrack.path));
-      nextAudio.preload = 'auto';
-      const nextSource = ac.createMediaElementSource(nextAudio);
-      const nextGain = ac.createGain();
-      nextGain.gain.value = 0;
-      nextSource.connect(nextGain);
-      nextGain.connect(ac.destination);
-
-      const fadeDur = Math.min(Math.max(crossfade, 3), 5);
-      const now = ac.currentTime;
-
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(gain.gain.value, now);
-      gain.gain.linearRampToValueAtTime(0, now + fadeDur);
-
-      nextGain.gain.setValueAtTime(0, now);
-      nextGain.gain.linearRampToValueAtTime(1, now + fadeDur);
-
-      nextAudio.play().catch(console.error);
-
-      window.setTimeout(() => {
-        audio.pause();
-        audio.src = buildFileUrl(currentTrack.path);
-        audio.play().catch((err) => console.error('Audio play failed after crossfade:', err));
-        nextSource.disconnect();
-        nextGain.disconnect();
-      }, fadeDur * 1000 + 200);
-    }
-
-  prevTrackRef.current = currentTrack ? buildFileUrl(currentTrack.path) : null;
-  }, [currentTrack, crossfade]);
+    if (!user) return;
+    const prefs = { audioQuality, crossfade: crossfade > 0, normalizeVolume };
+    upsertUserPreferences(user.id, prefs).catch((e) => console.error('Failed to upsert prefs', e));
+  }, [user, audioQuality, crossfade, normalizeVolume]);
 
   if (!currentTrack) {
     return (

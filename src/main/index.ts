@@ -71,17 +71,41 @@ app.whenReady().then(() => {
   protocol.registerFileProtocol('spicezify-file', (request, callback) => {
     try {
       const urlObj = new URL(request.url);
-      let localPath = urlObj.pathname;
+      let localPath = '';
 
-      // On Windows URL.pathname starts with a leading slash like '/C:/path'
-      if (process.platform === 'win32' && localPath.startsWith('/')) {
-        localPath = localPath.slice(1);
+      // Case A: URL like spicezify-file:///C:/path OR spicezify-file://localhost/C:/path
+      // urlObj.pathname will be '/C:/path' — strip leading slash on Windows
+      if (process.platform === 'win32') {
+        // If hostname is a single letter (drive) like 'C' and pathname is '/Users/...',
+        // reconstruct to 'C:/Users/...'
+        const host = urlObj.hostname;
+        const pathname = urlObj.pathname || '';
+        if (/^[A-Za-z]$/.test(host) && pathname.startsWith('/')) {
+          localPath = `${host}:${pathname}`; // e.g. 'C:/Users/...'
+        } else if (pathname.startsWith('/[A-Za-z]:')) {
+          // Rare case: pathname like '/C:/path'
+          localPath = pathname.slice(1);
+        } else if (pathname.startsWith('/')) {
+          // Fallback: strip leading slash
+          localPath = pathname.slice(1);
+        } else {
+          localPath = pathname;
+        }
+      } else {
+        // POSIX: use the pathname as-is
+        localPath = urlObj.pathname;
       }
 
       localPath = decodeURIComponent(localPath);
 
-      // Final basic sanity check: ensure localPath exists
-      // Let the callback attempt to open it; if invalid, the renderer will see a load error
+      try {
+        const exists = existsSync(localPath);
+        console.debug(`[spicezify-file] request.url=${request.url} -> localPath=${localPath} exists=${exists}`);
+      } catch {
+        console.debug(`[spicezify-file] request.url=${request.url} -> localPath=${localPath} (exists check failed)`);
+      }
+
+      // Final basic sanity check: let the callback attempt to open it; if invalid, the renderer will see a load error
       callback({ path: localPath });
     } catch (err) {
   const msg = err && (err as Error).message ? (err as Error).message : String(err);
