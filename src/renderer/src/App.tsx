@@ -1,5 +1,4 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { createBrowserRouter, RouterProvider, Navigate, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import Layout from './components/Layout';
@@ -23,7 +22,7 @@ const queryClient = new QueryClient({
   },
 });
 
-function AppContent() {
+function ProtectedLayout() {
   const { isAuthenticated, isLoading } = useAuthStore();
 
   if (isLoading) {
@@ -40,41 +39,47 @@ function AppContent() {
 
   return (
     <Layout>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/search" element={<Search />} />
-        <Route path="/library" element={<Library />} />
-        <Route path="/album/:id" element={<Album />} />
-        <Route path="/artist/:id" element={<Artist />} />
-        <Route path="/playlist/:id" element={<Playlist />} />
-        <Route path="/play-together" element={<PlayTogether />} />
-        <Route path="/play-together/:roomId" element={<PlayTogether />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Outlet />
     </Layout>
   );
 }
 
 function App() {
+  const router = createBrowserRouter(
+    [
+      {
+        path: '/',
+        element: <ProtectedLayout />,
+        children: [
+          { index: true, element: <Home /> },
+          { path: 'search', element: <Search /> },
+          { path: 'library', element: <Library /> },
+          { path: 'album/:id', element: <Album /> },
+          { path: 'artist/:id', element: <Artist /> },
+          { path: 'playlist/:id', element: <Playlist /> },
+          { path: 'play-together', element: <PlayTogether /> },
+          { path: 'play-together/:roomId', element: <PlayTogether /> },
+          { path: 'settings', element: <Settings /> },
+          { path: '*', element: <Navigate to="/" replace={true} /> },
+        ],
+      },
+    ]
+  );
+
   return (
     <QueryClientProvider client={queryClient}>
-      <Router>
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-          <AppContent />
-          <Toaster 
-            theme="dark" 
-            position="top-right"
-            toastOptions={{
-              style: {
-                background: 'hsl(var(--card))',
-                color: 'hsl(var(--card-foreground))',
-                border: '1px solid hsl(var(--border))',
-              },
-            }}
-          />
-        </div>
-      </Router>
+      <RouterProvider router={router} />
+      <Toaster 
+        theme="dark" 
+        position="top-right"
+        toastOptions={{
+          style: {
+            background: 'hsl(var(--card))',
+            color: 'hsl(var(--card-foreground))',
+            border: '1px solid hsl(var(--border))',
+          },
+        }}
+      />
     </QueryClientProvider>
   );
 }

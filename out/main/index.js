@@ -697,12 +697,30 @@ function createWindow() {
   }
   initializeIPC(mainWindow);
 }
+electron.protocol.registerSchemesAsPrivileged([
+  { scheme: "spicezify-file", privileges: { secure: true, standard: true, supportFetchAPI: true } }
+]);
 electron.app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.spicezify");
   electron.app.on("browser-window-created", (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
   initializeDatabase();
+  electron.protocol.registerFileProtocol("spicezify-file", (request, callback) => {
+    try {
+      const urlObj = new URL(request.url);
+      let localPath = urlObj.pathname;
+      if (process.platform === "win32" && localPath.startsWith("/")) {
+        localPath = localPath.slice(1);
+      }
+      localPath = decodeURIComponent(localPath);
+      callback({ path: localPath });
+    } catch (err) {
+      const msg = err && err.message ? err.message : String(err);
+      console.error("Error in spicezify-file protocol handler:", msg);
+      callback({ error: -2 });
+    }
+  });
   createWindow();
   electron.app.on("activate", function() {
     if (electron.BrowserWindow.getAllWindows().length === 0) createWindow();

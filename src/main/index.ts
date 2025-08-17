@@ -70,12 +70,22 @@ app.whenReady().then(() => {
   // Register protocol handler mapping spicezify-file://<absolute-path> -> file:///<absolute-path>
   protocol.registerFileProtocol('spicezify-file', (request, callback) => {
     try {
-      const url = request.url.replace('spicezify-file://', '');
-      // url may start with an extra slash; normalize
-      const localPath = decodeURIComponent(url);
+      const urlObj = new URL(request.url);
+      let localPath = urlObj.pathname;
+
+      // On Windows URL.pathname starts with a leading slash like '/C:/path'
+      if (process.platform === 'win32' && localPath.startsWith('/')) {
+        localPath = localPath.slice(1);
+      }
+
+      localPath = decodeURIComponent(localPath);
+
+      // Final basic sanity check: ensure localPath exists
+      // Let the callback attempt to open it; if invalid, the renderer will see a load error
       callback({ path: localPath });
     } catch (err) {
-      console.error('Error in spicezify-file protocol handler:', err);
+  const msg = err && (err as Error).message ? (err as Error).message : String(err);
+  console.error('Error in spicezify-file protocol handler:', msg);
       callback({ error: -2 });
     }
   });

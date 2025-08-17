@@ -63,11 +63,28 @@ export default function NowPlayingBar() {
 
   // helper to build a safe file:// URL from a local path
   const buildFileUrl = (p: string) => {
-  // Use custom protocol handled by main process to serve local files
-  const normalized = p.replace(/\\/g, '/');
-  // Ensure leading slash for absolute Windows paths
-  const prefix = normalized.startsWith('/') ? '' : '/';
-  return encodeURI(`spicezify-file://${prefix}${normalized}`);
+    // Use custom protocol handled by main process to serve local files.
+    // Normalize backslashes to forward slashes and encode the path portion.
+    const normalized = p.replace(/\\/g, '/');
+
+    // If this looks like a Windows absolute path (e.g. C:/...), ensure the URL has
+    // three slashes after the scheme: spicezify-file:///C:/path
+    const isWindowsDrive = /^[A-Za-z]:\//.test(normalized);
+
+    let pathPortion = encodeURI(normalized);
+    if (isWindowsDrive) {
+      // Ensure a leading slash so the URL pathname becomes '/C:/...'
+      if (!pathPortion.startsWith('/')) pathPortion = '/' + pathPortion;
+      return `spicezify-file://${pathPortion}`;
+    }
+
+    // For POSIX absolute paths (starting with '/'), this will produce spicezify-file:///path
+    if (normalized.startsWith('/')) {
+      return `spicezify-file://${pathPortion}`;
+    }
+
+    // Fallback: prefix with a slash to make an absolute-style pathname
+    return `spicezify-file:///${pathPortion}`;
   };
 
   // Audio element event handlers
@@ -97,8 +114,7 @@ export default function NowPlayingBar() {
     const handleError = () => {
       try {
         // Log detailed media error info
-        // @ts-ignore
-        const err = audio.error;
+  const err = audio.error;
         console.error('Audio element error:', err, 'readyState:', audio.readyState, 'networkState:', audio.networkState);
       } catch (e) {
         console.error('Error reading audio error object', e);
