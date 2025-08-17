@@ -177,41 +177,35 @@ export default function NowPlayingBar() {
     }
   }, []);
 
-  // Sync audio playback with store state (use active audio element)
+  // Simplified audio playback - focus on getting basic playback working first
   useEffect(() => {
-    const activeIsA = activeIsARef.current;
-    const activeEl = activeIsA ? audioRef.current : audioBRef.current;
-    const inactiveEl = activeIsA ? audioBRef.current : audioRef.current;
-    if (!activeEl || !inactiveEl) return;
+    const audio = audioRef.current;
+    if (!audio) return;
 
     if (currentTrack) {
       const srcUrl = buildFileUrl(currentTrack.path);
-      if (inactiveEl.src !== srcUrl) {
-        inactiveEl.preload = 'auto';
-        inactiveEl.src = srcUrl;
+      console.log('🎵 Setting audio src:', srcUrl);
+      
+      if (audio.src !== srcUrl) {
+        audio.preload = 'auto';
+        audio.src = srcUrl;
+        audio.load(); // Force reload
       }
 
-      const playActive = async () => {
-        try {
-          if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-            await audioContextRef.current.resume();
-          }
-          if (isPlaying) {
-            const p = activeEl.play();
-            if (p && typeof p.then === 'function') await p;
-          } else {
-            activeEl.pause();
-          }
-        } catch (err) {
-          console.error('Audio play failed (active):', err, 'audio.error:', activeEl.error);
-        }
-      };
-
-      playActive();
+      if (isPlaying) {
+        console.log('▶️ Attempting to play');
+        audio.play().catch(err => {
+          console.error('❌ Play failed:', err);
+        });
+      } else {
+        console.log('⏸️ Pausing');
+        audio.pause();
+      }
     }
   }, [currentTrack, isPlaying]);
 
-  // Crossfade handling when currentTrack changes using the inactive audio element
+  // Crossfade handling - TEMPORARILY DISABLED for basic playback testing
+  /* 
   useEffect(() => {
     const ac = audioContextRef.current;
     const gA = gainRef.current;
@@ -278,6 +272,7 @@ export default function NowPlayingBar() {
       prevTrackRef.current = currentTrack ? buildFileUrl(currentTrack.path) : null;
     }
   }, [currentTrack, crossfade]);
+  */
 
   // Helpers and UI handlers (restored from previous implementation)
   const formatTime = (seconds: number) => {
