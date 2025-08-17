@@ -63,9 +63,11 @@ export default function NowPlayingBar() {
 
   // helper to build a safe file:// URL from a local path
   const buildFileUrl = (p: string) => {
-    const normalized = p.replace(/\\/g, '/');
-    const prefix = normalized.startsWith('/') ? '' : '/';
-    return encodeURI(`file://${prefix}${normalized}`);
+  // Use custom protocol handled by main process to serve local files
+  const normalized = p.replace(/\\/g, '/');
+  // Ensure leading slash for absolute Windows paths
+  const prefix = normalized.startsWith('/') ? '' : '/';
+  return encodeURI(`spicezify-file://${prefix}${normalized}`);
   };
 
   // Audio element event handlers

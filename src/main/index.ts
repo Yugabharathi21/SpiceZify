@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, Menu, dialog } from 'electron';
+import { app, shell, BrowserWindow, Menu, dialog, protocol } from 'electron';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { electronApp, optimizer, is } from '@electron-toolkit/utils';
@@ -48,6 +48,12 @@ function createWindow(): void {
   initializeIPC(mainWindow);
 }
 
+// Register a custom protocol to serve local files to the renderer securely
+// Must be registered as privileged before app.whenReady
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'spicezify-file', privileges: { secure: true, standard: true, supportFetchAPI: true } }
+]);
+
 // This method will be called when Electron has finished initialization
 app.whenReady().then(() => {
   // Set app user model id for windows
@@ -60,6 +66,19 @@ app.whenReady().then(() => {
 
   // Initialize database
   initializeDatabase();
+
+  // Register protocol handler mapping spicezify-file://<absolute-path> -> file:///<absolute-path>
+  protocol.registerFileProtocol('spicezify-file', (request, callback) => {
+    try {
+      const url = request.url.replace('spicezify-file://', '');
+      // url may start with an extra slash; normalize
+      const localPath = decodeURIComponent(url);
+      callback({ path: localPath });
+    } catch (err) {
+      console.error('Error in spicezify-file protocol handler:', err);
+      callback({ error: -2 });
+    }
+  });
 
   createWindow();
 
