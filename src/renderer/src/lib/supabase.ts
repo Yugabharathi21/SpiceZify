@@ -9,6 +9,7 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl ?? '', supabaseKey ?? '');
 
+// Legacy functions - replaced by database.ts service layer
 export async function fetchUserPreferences(userId: string) {
   const { data, error } = await supabase
     .from('preferences')
@@ -36,10 +37,37 @@ export async function fetchUserPreferences(userId: string) {
 }
 
 export async function upsertUserPreferences(userId: string, prefs: Record<string, unknown>) {
+  const payload = { user_id: userId, data: prefs };
   const { data, error } = await supabase
     .from('preferences')
-    .upsert({ user_id: userId, data: prefs }, { onConflict: 'user_id' })
+    .upsert(payload, { onConflict: 'user_id' })
     .select();
+
+  if (error) {
+    // Print full error shape for debugging (message, details, hint, code)
+    const supaErr = error as unknown as {
+      message?: string;
+      details?: string;
+      hint?: string;
+      code?: string;
+      status?: number;
+    };
+
+    try {
+      console.error('[supabase] upsertUserPreferences error', {
+        payload,
+        message: supaErr.message,
+        details: supaErr.details,
+        hint: supaErr.hint,
+        code: supaErr.code,
+        status: supaErr.status,
+      });
+    } catch {
+      console.error('[supabase] upsertUserPreferences error (could not stringify)', error);
+    }
+  } else {
+    console.debug('[supabase] upsertUserPreferences success', { payload, data });
+  }
 
   return { data, error };
 }

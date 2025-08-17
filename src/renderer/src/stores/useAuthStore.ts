@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { fetchUserPreferences } from '../lib/supabase';
+import { fetchUserPreferences, createProfile, getProfile } from '../lib/database';
 import { useSettingsStore } from './useSettingsStore';
 
 interface User {
@@ -34,7 +34,7 @@ export const useAuthStore = create<AuthState>()(
           await new Promise(resolve => setTimeout(resolve, 1000));
           
           const user = {
-            id: '1',
+            id: '00000000-0000-0000-0000-000000000001',
             email,
             displayName: email.split('@')[0],
           };
@@ -55,7 +55,7 @@ export const useAuthStore = create<AuthState>()(
               if (typeof prefs.normalizeVolume === 'boolean') s.setNormalizeVolume(prefs.normalizeVolume);
             }
           } catch (e) {
-            // ignore
+            console.warn('Failed to load user preferences:', e);
           }
         } catch (error) {
           set({ isLoading: false });
@@ -70,7 +70,7 @@ export const useAuthStore = create<AuthState>()(
           await new Promise(resolve => setTimeout(resolve, 1000));
           
           const user = {
-            id: '1',
+            id: '00000000-0000-0000-0000-000000000001',
             email,
             displayName: displayName || email.split('@')[0],
           };
@@ -91,7 +91,7 @@ export const useAuthStore = create<AuthState>()(
               if (typeof prefs.normalizeVolume === 'boolean') s.setNormalizeVolume(prefs.normalizeVolume);
             }
           } catch (e) {
-            // ignore
+            console.warn('Failed to load user preferences:', e);
           }
         } catch (error) {
           set({ isLoading: false });

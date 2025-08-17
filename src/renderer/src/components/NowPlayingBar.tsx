@@ -16,7 +16,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAuthStore } from '../stores/useAuthStore';
-import { upsertUserPreferences } from '../lib/supabase';
 
 export default function NowPlayingBar() {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -334,7 +333,9 @@ export default function NowPlayingBar() {
   useEffect(() => {
     if (!user) return;
     const prefs = { audioQuality, crossfade: crossfade > 0, normalizeVolume };
-    upsertUserPreferences(user.id, prefs).catch((e) => console.error('Failed to upsert prefs', e));
+    import('../lib/database').then(({ upsertUserPreferences }) => {
+      upsertUserPreferences(user.id, prefs).catch((e) => console.error('Failed to upsert prefs', e));
+    });
   }, [user, audioQuality, crossfade, normalizeVolume]);
 
   if (!currentTrack) {
