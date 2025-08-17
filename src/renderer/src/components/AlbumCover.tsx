@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 interface AlbumCoverProps {
   trackId: number;
   className?: string;
-  size?: 'small' | 'medium' | 'large';
+  size?: 'small' | 'medium' | 'large' | 'custom';
 }
 
 export default function AlbumCover({ trackId, className = '', size = 'medium' }: AlbumCoverProps) {
@@ -49,6 +49,7 @@ export default function AlbumCover({ trackId, className = '', size = 'medium' }:
       case 'small': return 'w-8 h-8';
       case 'medium': return 'w-12 h-12';
       case 'large': return 'w-16 h-16';
+      case 'custom': return ''; // Allow custom sizing via className
       default: return 'w-12 h-12';
     }
   };

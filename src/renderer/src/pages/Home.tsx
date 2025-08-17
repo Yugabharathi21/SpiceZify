@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Play, Clock, TrendingUp } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLibraryStore } from '../stores/useLibraryStore';
-import { usePlayerStore } from '../stores/usePlayerStore';
+import { usePlayerStore, Track } from '../stores/usePlayerStore';
+import AlbumCover from '../components/AlbumCover';
 
 export default function Home() {
   const { tracks, albums, loadLibrary } = useLibraryStore();
@@ -15,7 +16,7 @@ export default function Home() {
   const recentTracks = tracks.slice(0, 6);
   const recentAlbums = albums.slice(0, 6);
 
-  const handlePlayTrack = (track: any, index: number = 0) => {
+  const handlePlayTrack = (track: Track, index: number = 0) => {
     setQueue([track], index);
     play(track);
   };
@@ -107,17 +108,11 @@ export default function Home() {
                   onClick={() => handlePlayTrack(track)}
                 >
                   <div className="aspect-square bg-muted rounded-lg mb-3 overflow-hidden relative">
-                    {track.cover ? (
-                      <img 
-                        src={track.cover} 
-                        alt={`${track.title} cover`}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                        <div className="w-8 h-8 bg-muted-foreground/20 rounded" />
-                      </div>
-                    )}
+                    <AlbumCover 
+                      trackId={track.id}
+                      className="w-full h-full"
+                      size="custom"
+                    />
                     <button className="absolute bottom-2 right-2 w-10 h-10 bg-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300">
                       <Play className="w-4 h-4 text-primary-foreground ml-0.5" />
                     </button>
@@ -144,30 +139,43 @@ export default function Home() {
               </h2>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {recentAlbums.map((album, index) => (
-                <motion.div
-                  key={album.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="album-card group"
-                >
-                  <div className="aspect-square bg-muted rounded-lg mb-3 overflow-hidden relative">
-                    <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                      <div className="w-8 h-8 bg-muted-foreground/20 rounded" />
+              {recentAlbums.map((album, index) => {
+                // Find a track from this album to show its cover
+                const albumTrack = tracks.find(track => track.album_name === album.name);
+                
+                return (
+                  <motion.div
+                    key={album.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="album-card group"
+                  >
+                    <div className="aspect-square bg-muted rounded-lg mb-3 overflow-hidden relative">
+                      {albumTrack ? (
+                        <AlbumCover 
+                          trackId={albumTrack.id}
+                          className="w-full h-full"
+                          size="custom"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
+                          <div className="w-8 h-8 bg-muted-foreground/20 rounded" />
+                        </div>
+                      )}
+                      <button className="absolute bottom-2 right-2 w-10 h-10 bg-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300">
+                        <Play className="w-4 h-4 text-primary-foreground ml-0.5" />
+                      </button>
                     </div>
-                    <button className="absolute bottom-2 right-2 w-10 h-10 bg-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300">
-                      <Play className="w-4 h-4 text-primary-foreground ml-0.5" />
-                    </button>
-                  </div>
-                  <h3 className="font-semibold text-sm truncate mb-1">
-                    {album.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {album.artist_name || 'Various Artists'}
-                  </p>
-                </motion.div>
-              ))}
+                    <h3 className="font-semibold text-sm truncate mb-1">
+                      {album.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {album.artist_name || 'Various Artists'}
+                    </p>
+                  </motion.div>
+                );
+              })}
             </div>
           </section>
         )}
