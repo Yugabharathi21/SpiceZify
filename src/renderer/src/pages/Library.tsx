@@ -54,20 +54,36 @@ export default function Library() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-center"
+          className="text-center max-w-xl"
         >
-          <div className="w-32 h-32 bg-muted rounded-full flex items-center justify-center mb-8">
-            <FolderPlus className="w-16 h-16 text-muted-foreground" />
+          {/* Spotify-style centered circle */}
+          <div
+            className="w-40 h-40 rounded-full mb-8 mx-auto flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(180deg, rgba(18,26,37,1), rgba(10,14,18,1))',
+              boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.6), 0 8px 30px rgba(2,6,10,0.6)'
+            }}
+          >
+            <div className="flex items-center justify-center w-full h-full">
+              <FolderPlus className="w-16 h-16 text-white block" strokeWidth={1.5} />
+            </div>
           </div>
-          <h2 className="text-3xl font-bold mb-4">Your library is empty</h2>
-          <p className="text-muted-foreground text-lg mb-8 max-w-md">
+
+          <h2 className="text-4xl font-extrabold mb-4">Your library is empty</h2>
+          <p className="text-muted-foreground text-lg mb-8 max-w-md mx-auto">
             Add your music folders to start building your personal music library
           </p>
+
           <button
             onClick={handleAddFolders}
-            className="bg-primary text-primary-foreground px-8 py-3 rounded-full font-semibold hover:bg-primary/90 transition-colors inline-flex items-center gap-2"
+            className="px-8 py-3 rounded-full font-semibold inline-flex items-center gap-3"
+            style={{
+              background: '#1DB954',
+              color: '#062018',
+              boxShadow: '0 8px 20px rgba(29,185,84,0.18)'
+            }}
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-5 h-5 text-black" />
             Add Music Folders
           </button>
         </motion.div>

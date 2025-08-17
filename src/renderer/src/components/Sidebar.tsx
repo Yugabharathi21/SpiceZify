@@ -27,18 +27,20 @@ export default function Sidebar() {
   ];
 
   return (
-    <div className="w-72 bg-card/50 backdrop-blur-xl border-r border-border flex flex-col">
+  <div className="w-72 bg-[linear-gradient(180deg,#0b1116,#051014)] border-r border-border flex flex-col">
       {/* Logo */}
       <div className="p-6 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Music className="w-8 h-8 text-primary" />
-          <h1 className="text-2xl font-bold">SPiceZify</h1>
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary rounded flex items-center justify-center shadow-sm">
+            <Music className="w-5 h-5 text-black" />
+          </div>
+          <h1 className="text-2xl font-extrabold tracking-tight">SPiceZify</h1>
         </div>
       </div>
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto">
-        <div className="p-4 space-y-2">
+  <div className="p-4 space-y-2">
           {navItems.map(({ to, icon: Icon, label }) => (
             <NavLink
               key={to}
