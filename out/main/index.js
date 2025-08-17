@@ -1,9 +1,30 @@
 "use strict";
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 const electron = require("electron");
 const path = require("path");
 const fs = require("fs");
 const promises = require("fs/promises");
-const musicMetadata = require("music-metadata");
 const crypto = require("crypto");
 const Database = require("better-sqlite3");
 const chokidar = require("chokidar");
@@ -100,6 +121,19 @@ const optimizer = {
     });
   }
 };
+async function parseFileSafe(filePath) {
+  const mod = await import("music-metadata");
+  if (typeof mod.parseFile === "function") {
+    return mod.parseFile(filePath);
+  }
+  if (typeof mod.loadMusicMetadata === "function") {
+    const loader = await mod.loadMusicMetadata();
+    if (loader && typeof loader.parseFile === "function") {
+      return loader.parseFile(filePath);
+    }
+  }
+  throw new Error("music-metadata: parseFile not available");
+}
 class LibraryScanner {
   constructor(database2) {
     this.supportedFormats = [".mp3", ".flac", ".m4a", ".ogg", ".wav", ".aac"];
@@ -159,7 +193,7 @@ class LibraryScanner {
       if (existingTrack && existingTrack.hash === fileHash) {
         return "skipped";
       }
-      const metadata = await musicMetadata.parseFile(filePath);
+      const metadata = await parseFileSafe(filePath);
       const artistId = this.getOrCreateArtist(
         metadata.common.artist || metadata.common.albumartist || "Unknown Artist"
       );
@@ -383,7 +417,7 @@ class CoverCache {
         const data = await promises.readFile(cachePath);
         return `data:image/jpeg;base64,${data.toString("base64")}`;
       }
-      const metadata = await musicMetadata.parseFile(track.path);
+      const metadata = await parseFileSafe(track.path);
       const picture = metadata.common.picture?.[0];
       if (picture) {
         await promises.writeFile(cachePath, picture.data);

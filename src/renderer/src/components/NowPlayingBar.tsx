@@ -61,6 +61,13 @@ export default function NowPlayingBar() {
 
   const { user } = useAuthStore();
 
+  // helper to build a safe file:// URL from a local path
+  const buildFileUrl = (p: string) => {
+    const normalized = p.replace(/\\/g, '/');
+    const prefix = normalized.startsWith('/') ? '' : '/';
+    return encodeURI(`file://${prefix}${normalized}`);
+  };
+
   // Audio element event handlers
   useEffect(() => {
     const audio = audioRef.current;
@@ -102,8 +109,9 @@ export default function NowPlayingBar() {
     if (!audio) return;
 
     if (currentTrack) {
-      if (audio.src !== `file://${currentTrack.path}`) {
-        audio.src = `file://${currentTrack.path}`;
+      const srcUrl = buildFileUrl(currentTrack.path);
+      if (audio.src !== srcUrl) {
+        audio.src = srcUrl;
       }
       
       if (isPlaying) {
@@ -262,7 +270,7 @@ export default function NowPlayingBar() {
 
     const prev = prevTrackRef.current;
     if (prev && currentTrack && crossfade > 0) {
-      const nextAudio = new Audio(`file://${currentTrack.path}`);
+          const nextAudio = new Audio(buildFileUrl(currentTrack.path));
       nextAudio.preload = 'auto';
       const nextSource = ac.createMediaElementSource(nextAudio);
       const nextGain = ac.createGain();
@@ -291,7 +299,7 @@ export default function NowPlayingBar() {
       }, fadeDur * 1000 + 200);
     }
 
-    prevTrackRef.current = currentTrack ? `file://${currentTrack.path}` : null;
+  prevTrackRef.current = currentTrack ? buildFileUrl(currentTrack.path) : null;
   }, [currentTrack, crossfade]);
 
   if (!currentTrack) {

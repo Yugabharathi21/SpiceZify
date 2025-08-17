@@ -1,6 +1,6 @@
 import { readdir, stat } from 'fs/promises';
 import { join, extname, basename } from 'path';
-import { parseFile, IAudioMetadata } from 'music-metadata';
+import { parseFileSafe } from './mmHelper';
 import { createHash } from 'crypto';
 import Database from 'better-sqlite3';
 
@@ -88,8 +88,8 @@ export class LibraryScanner {
         return 'skipped'; // File hasn't changed
       }
 
-      // Parse metadata
-      const metadata = await parseFile(filePath);
+  // Parse metadata using runtime-safe helper
+  const metadata = await parseFileSafe(filePath);
       
       // Get or create artist
       const artistId = this.getOrCreateArtist(

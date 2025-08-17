@@ -2,7 +2,7 @@ import { join } from 'path';
 import { app } from 'electron';
 import { mkdir, writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { parseFile } from 'music-metadata';
+import { parseFileSafe } from './mmHelper';
 import { database } from './db';
 
 export class CoverCache {
@@ -37,7 +37,7 @@ export class CoverCache {
       }
 
       // Extract cover from audio file
-      const metadata = await parseFile(track.path);
+  const metadata = await parseFileSafe(track.path);
       const picture = metadata.common.picture?.[0];
       
       if (picture) {
