@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { useLibraryStore } from '../stores/useLibraryStore';
 import TrackList from '../components/TrackList';
-import { usePlayerStore } from '../stores/usePlayerStore';
+import { usePlayerStore, Track } from '../stores/usePlayerStore';
 
 export default function Library() {
   const [view, setView] = useState<'tracks' | 'albums' | 'artists'>('tracks');
@@ -37,9 +37,17 @@ export default function Library() {
     }
   };
 
-  const handlePlayTrack = (track: any) => {
-    setQueue([track]);
+  const handlePlayTrack = (track: Track) => {
+    // Find the index of the clicked track in the full tracks list
+    const trackIndex = tracks.findIndex(t => t.id === track.id);
+    
+    // Set the entire tracks list as the queue with the correct starting index
+    setQueue(tracks, trackIndex >= 0 ? trackIndex : 0);
+    
+    // Play the selected track
     play(track);
+    
+    console.log('🎵 Playing track:', track.title, 'at index:', trackIndex, 'of', tracks.length, 'tracks');
   };
 
   const viewButtons = [
@@ -150,7 +158,7 @@ export default function Library() {
           {viewButtons.map(({ id, label, count }) => (
             <button
               key={id}
-              onClick={() => setView(id as any)}
+              onClick={() => setView(id as 'tracks' | 'albums' | 'artists')}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
                 view === id
                   ? 'bg-card text-foreground shadow-sm'

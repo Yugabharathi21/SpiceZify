@@ -182,6 +182,8 @@ export default function NowPlayingBar() {
     const audio = audioRef.current;
     if (!audio) return;
 
+    console.log('🎵 Track changed:', currentTrack?.title);
+
     if (currentTrack) {
       const srcUrl = buildFileUrl(currentTrack.path);
       console.log('🎵 Setting audio src:', srcUrl);
@@ -190,19 +192,45 @@ export default function NowPlayingBar() {
         audio.preload = 'auto';
         audio.src = srcUrl;
         audio.load(); // Force reload
-      }
-
-      if (isPlaying) {
-        console.log('▶️ Attempting to play');
+        
+        // Wait for the audio to be ready before playing
+        const playWhenReady = () => {
+          if (isPlaying) {
+            console.log('▶️ Attempting to play after load');
+            audio.play().catch(err => {
+              console.error('❌ Play failed after load:', err);
+            });
+          }
+        };
+        
+        audio.addEventListener('canplay', playWhenReady, { once: true });
+      } else if (isPlaying) {
+        console.log('▶️ Attempting to play (same source)');
         audio.play().catch(err => {
           console.error('❌ Play failed:', err);
         });
-      } else {
-        console.log('⏸️ Pausing');
-        audio.pause();
       }
     }
+
+    if (!isPlaying && !audio.paused) {
+      console.log('⏸️ Pausing');
+      audio.pause();
+    }
   }, [currentTrack, isPlaying]);
+
+  // Handle volume and mute changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isMuted) {
+      audio.volume = 0;
+      console.log('🔇 Audio muted');
+    } else {
+      audio.volume = volume;
+      console.log('🔊 Volume set to:', volume);
+    }
+  }, [volume, isMuted]);
 
   // Crossfade handling - TEMPORARILY DISABLED for basic playback testing
   /* 
@@ -285,7 +313,17 @@ export default function NowPlayingBar() {
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
     const time = percent * duration;
+    console.log('🔄 Seeking to:', time);
+    
+    // Update store state
     seekTo(time);
+    
+    // Update the actual audio element
+    const audio = audioRef.current;
+    if (audio && !isNaN(time) && isFinite(time)) {
+      audio.currentTime = time;
+      console.log('✅ Audio currentTime set to:', audio.currentTime);
+    }
   };
 
   const handleVolumeChange = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -346,13 +384,14 @@ export default function NowPlayingBar() {
   return (
     <div className="h-24 bg-card/80 backdrop-blur-xl border-t border-border">
       <audio ref={audioRef} />
+      <audio ref={audioBRef} />
       
       {/* Progress Bar */}
       <div className="px-4 pt-2">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{formatTime(currentTime)}</span>
           <div 
-            className="flex-1 progress-bar"
+            className="flex-1 progress-bar cursor-pointer"
             onClick={handleProgressClick}
           >
             <div 
@@ -432,14 +471,24 @@ export default function NowPlayingBar() {
           </button>
 
           <button
-            onClick={previous}
+            onClick={() => {
+              console.log('⏮️ Previous button clicked');
+              previous();
+            }}
             className="p-2 hover:bg-muted/50 rounded-full transition-colors"
           >
             <SkipBack className="w-5 h-5" />
           </button>
 
           <button
-            onClick={isPlaying ? pause : () => play()}
+            onClick={() => {
+              console.log(isPlaying ? '⏸️ Pause clicked' : '▶️ Play clicked');
+              if (isPlaying) {
+                pause();
+              } else {
+                play();
+              }
+            }}
             className="p-3 bg-primary hover:bg-primary/90 rounded-full transition-colors"
           >
             {isPlaying ? (
@@ -450,7 +499,10 @@ export default function NowPlayingBar() {
           </button>
 
           <button
-            onClick={next}
+            onClick={() => {
+              console.log('⏭️ Next button clicked');
+              next();
+            }}
             className="p-2 hover:bg-muted/50 rounded-full transition-colors"
           >
             <SkipForward className="w-5 h-5" />
