@@ -21,6 +21,11 @@ export interface ElectronAPI {
   // Database
   query: (query: string, params?: any[]) => Promise<any[]>;
   
+  // Window controls
+  toggleFullscreen: () => Promise<boolean>;
+  exitFullscreen: () => Promise<boolean>;
+  isFullscreen: () => Promise<boolean>;
+  
   // Events
   onScanProgress: (callback: (data: { progress: number; current: string }) => void) => void;
   removeAllListeners: (channel: string) => void;
@@ -45,6 +50,11 @@ const electronAPI: ElectronAPI = {
   
   // Database
   query: (query: string, params?: any[]) => ipcRenderer.invoke('db:query', query, params),
+  
+  // Window controls
+  toggleFullscreen: () => ipcRenderer.invoke('window:toggleFullscreen'),
+  exitFullscreen: () => ipcRenderer.invoke('window:exitFullscreen'),
+  isFullscreen: () => ipcRenderer.invoke('window:isFullscreen'),
   
   // Events
   onScanProgress: (callback) => ipcRenderer.on('library:scanProgress', (_, data) => callback(data)),

@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import FullscreenPlayer from './FullscreenPlayer';
+import AlbumCover from './AlbumCover';
 
 export default function NowPlayingBar() {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -23,12 +25,12 @@ export default function NowPlayingBar() {
   const activeIsARef = useRef(true);
   const isDragging = false;
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const gainBRef = useRef<GainNode | null>(null);
-  const prevTrackRef = useRef<string | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
 
   const {
@@ -106,10 +108,13 @@ export default function NowPlayingBar() {
     };
 
     const handleEnded = () => {
+      console.log('🔚 Track ended, repeat mode:', repeat);
       if (repeat === 'one') {
+        console.log('🔂 Repeating current track');
         audio.currentTime = 0;
         audio.play();
       } else {
+        console.log('⏭️ Moving to next track');
         next();
       }
     };
@@ -182,6 +187,8 @@ export default function NowPlayingBar() {
     const audio = audioRef.current;
     if (!audio) return;
 
+    console.log('🎵 Track changed:', currentTrack?.title);
+
     if (currentTrack) {
       const srcUrl = buildFileUrl(currentTrack.path);
       console.log('🎵 Setting audio src:', srcUrl);
@@ -190,19 +197,45 @@ export default function NowPlayingBar() {
         audio.preload = 'auto';
         audio.src = srcUrl;
         audio.load(); // Force reload
-      }
-
-      if (isPlaying) {
-        console.log('▶️ Attempting to play');
+        
+        // Wait for the audio to be ready before playing
+        const playWhenReady = () => {
+          if (isPlaying) {
+            console.log('▶️ Attempting to play after load');
+            audio.play().catch(err => {
+              console.error('❌ Play failed after load:', err);
+            });
+          }
+        };
+        
+        audio.addEventListener('canplay', playWhenReady, { once: true });
+      } else if (isPlaying) {
+        console.log('▶️ Attempting to play (same source)');
         audio.play().catch(err => {
           console.error('❌ Play failed:', err);
         });
-      } else {
-        console.log('⏸️ Pausing');
-        audio.pause();
       }
     }
+
+    if (!isPlaying && !audio.paused) {
+      console.log('⏸️ Pausing');
+      audio.pause();
+    }
   }, [currentTrack, isPlaying]);
+
+  // Handle volume and mute changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (isMuted) {
+      audio.volume = 0;
+      console.log('🔇 Audio muted');
+    } else {
+      audio.volume = volume;
+      console.log('🔊 Volume set to:', volume);
+    }
+  }, [volume, isMuted]);
 
   // Crossfade handling - TEMPORARILY DISABLED for basic playback testing
   /* 
@@ -285,7 +318,17 @@ export default function NowPlayingBar() {
     const rect = e.currentTarget.getBoundingClientRect();
     const percent = (e.clientX - rect.left) / rect.width;
     const time = percent * duration;
+    console.log('🔄 Seeking to:', time);
+    
+    // Update store state
     seekTo(time);
+    
+    // Update the actual audio element
+    const audio = audioRef.current;
+    if (audio && !isNaN(time) && isFinite(time)) {
+      audio.currentTime = time;
+      console.log('✅ Audio currentTime set to:', audio.currentTime);
+    }
   };
 
   const handleVolumeChange = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -321,7 +364,9 @@ export default function NowPlayingBar() {
     const modes: Array<'none' | 'one' | 'all'> = ['none', 'all', 'one'];
     const currentIndex = modes.indexOf(repeat);
     const nextIndex = (currentIndex + 1) % modes.length;
-    setRepeat(modes[nextIndex]);
+    const nextMode = modes[nextIndex];
+    console.log('🔁 Repeat mode changed:', repeat, '→', nextMode);
+    setRepeat(nextMode);
   };
 
   // Persist settings to Supabase when user is present
@@ -344,44 +389,40 @@ export default function NowPlayingBar() {
   const RepeatIcon = getRepeatIcon();
 
   return (
-    <div className="h-24 bg-card/80 backdrop-blur-xl border-t border-border">
-      <audio ref={audioRef} />
-      
-      {/* Progress Bar */}
-      <div className="px-4 pt-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{formatTime(currentTime)}</span>
-          <div 
-            className="flex-1 progress-bar"
-            onClick={handleProgressClick}
-          >
+    <>
+      <div className="h-24 bg-card/80 backdrop-blur-xl border-t border-border">
+        <audio ref={audioRef} />
+        <audio ref={audioBRef} />
+        
+        {/* Progress Bar */}
+        <div className="px-4 pt-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{formatTime(currentTime)}</span>
             <div 
-              className="progress-fill"
-              style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-            />
-            <div 
-              className="progress-thumb"
-              style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-            />
+              className="flex-1 progress-bar cursor-pointer"
+              onClick={handleProgressClick}
+            >
+              <div 
+                className="progress-fill"
+                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+              <div 
+                className="progress-thumb"
+                style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+            </div>
+            <span>{formatTime(duration)}</span>
           </div>
-          <span>{formatTime(duration)}</span>
         </div>
-      </div>
 
-      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between px-4 py-3">
         {/* Track Info */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-            {currentTrack.cover ? (
-              <img 
-                src={currentTrack.cover} 
-                alt="Album art"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-6 h-6 bg-muted-foreground/20 rounded" />
-            )}
-          </div>
+          <AlbumCover 
+            trackId={currentTrack.id}
+            size="medium"
+            className="flex-shrink-0"
+          />
           <div className="min-w-0 flex-1">
             <h3 className="font-medium text-sm truncate">
               {currentTrack.title}
@@ -423,7 +464,10 @@ export default function NowPlayingBar() {
           </button>
 
           <button
-            onClick={toggleShuffle}
+            onClick={() => {
+              console.log('🔀 Shuffle clicked, current state:', shuffle);
+              toggleShuffle();
+            }}
             className={`p-2 rounded-full transition-colors ${
               shuffle ? 'text-primary bg-primary/20' : 'hover:bg-muted/50'
             }`}
@@ -432,14 +476,24 @@ export default function NowPlayingBar() {
           </button>
 
           <button
-            onClick={previous}
+            onClick={() => {
+              console.log('⏮️ Previous button clicked');
+              previous();
+            }}
             className="p-2 hover:bg-muted/50 rounded-full transition-colors"
           >
             <SkipBack className="w-5 h-5" />
           </button>
 
           <button
-            onClick={isPlaying ? pause : () => play()}
+            onClick={() => {
+              console.log(isPlaying ? '⏸️ Pause clicked' : '▶️ Play clicked');
+              if (isPlaying) {
+                pause();
+              } else {
+                play();
+              }
+            }}
             className="p-3 bg-primary hover:bg-primary/90 rounded-full transition-colors"
           >
             {isPlaying ? (
@@ -450,7 +504,10 @@ export default function NowPlayingBar() {
           </button>
 
           <button
-            onClick={next}
+            onClick={() => {
+              console.log('⏭️ Next button clicked');
+              next();
+            }}
             className="p-2 hover:bg-muted/50 rounded-full transition-colors"
           >
             <SkipForward className="w-5 h-5" />
@@ -458,6 +515,7 @@ export default function NowPlayingBar() {
 
           <button
             onClick={cycleRepeat}
+            title={`Repeat: ${repeat === 'none' ? 'Off' : repeat === 'one' ? 'Track' : 'All'}`}
             className={`p-2 rounded-full transition-colors ${
               repeat !== 'none' ? 'text-primary bg-primary/20' : 'hover:bg-muted/50'
             }`}
@@ -500,11 +558,23 @@ export default function NowPlayingBar() {
             </AnimatePresence>
           </div>
 
-          <button className="p-2 hover:bg-muted/50 rounded-full transition-colors">
+          <button 
+            onClick={() => setShowFullscreen(true)}
+            className="p-2 hover:bg-muted/50 rounded-full transition-colors"
+            title="Fullscreen Player"
+          >
             <Maximize2 className="w-4 h-4" />
           </button>
         </div>
       </div>
-    </div>
+      </div>
+
+      {/* Fullscreen Player */}
+      <FullscreenPlayer 
+        isOpen={showFullscreen}
+        onClose={() => setShowFullscreen(false)}
+        audioElement={audioRef.current}
+      />
+    </>
   );
 }

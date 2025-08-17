@@ -1,6 +1,6 @@
-import React from 'react';
 import { Play, Clock, MoreHorizontal, Heart } from 'lucide-react';
 import { Track } from '../stores/usePlayerStore';
+import AlbumCover from './AlbumCover';
 
 interface TrackListProps {
   tracks: Track[];
@@ -69,17 +69,11 @@ export default function TrackList({
 
           <div className={`${showCover ? 'col-span-6' : 'col-span-7'} flex items-center gap-3 min-w-0`}>
             {showCover && (
-              <div className="w-10 h-10 bg-muted rounded overflow-hidden flex-shrink-0">
-                {track.cover ? (
-                  <img 
-                    src={track.cover} 
-                    alt={`${track.title} cover`}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50" />
-                )}
-              </div>
+              <AlbumCover 
+                trackId={track.id}
+                size="small"
+                className="flex-shrink-0"
+              />
             )}
             <div className="min-w-0 flex-1">
               <h3 className="font-medium text-sm truncate">{track.title}</h3>

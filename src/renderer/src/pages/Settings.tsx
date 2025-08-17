@@ -2,7 +2,7 @@ import React from 'react';
 import { Settings as SettingsIcon, User, Music, Volume2, Wifi, Shield, Palette } from 'lucide-react';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAuthStore } from '../stores/useAuthStore';
-import { upsertUserPreferences } from '../lib/supabase';
+import { upsertUserPreferences } from '../lib/database';
 import { motion } from 'framer-motion';
 
 export default function Settings() {
@@ -20,7 +20,11 @@ export default function Settings() {
   React.useEffect(() => {
     if (!user) return;
     const prefs = { audioQuality, crossfade: crossfade > 0, normalizeVolume };
-    upsertUserPreferences(user.id, prefs).catch(console.error);
+    upsertUserPreferences(user.id, prefs).then(result => {
+      if (result.error) {
+        console.error('Failed to save preferences:', result.error);
+      }
+    }).catch(console.error);
   }, [user, audioQuality, crossfade, normalizeVolume]);
 
   const settingSections = [

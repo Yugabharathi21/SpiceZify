@@ -45,6 +45,7 @@ interface LibraryState {
   loadLibrary: () => Promise<void>;
   scanFolders: (folders: string[]) => Promise<void>;
   searchLibrary: (query: string) => Promise<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>;
+  loadTrackCover: (trackId: number) => Promise<string | null>;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -118,6 +119,15 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     } catch (error) {
       console.error('Error searching library:', error);
       return { tracks: [], albums: [], artists: [] };
+    }
+  },
+
+  loadTrackCover: async (trackId: number) => {
+    try {
+      return await window.electronAPI.getCoverForTrack(trackId);
+    } catch (error) {
+      console.error('Error loading track cover:', error);
+      return null;
     }
   },
 }));

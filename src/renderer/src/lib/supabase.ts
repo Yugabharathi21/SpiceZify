@@ -11,6 +11,12 @@ export const supabase = createClient(supabaseUrl ?? '', supabaseKey ?? '');
 
 // Legacy functions - replaced by database.ts service layer
 export async function fetchUserPreferences(userId: string) {
+  // Return empty preferences for temporary offline users
+  if (userId.startsWith('temp-')) {
+    console.log('[supabase] Returning empty preferences for offline user');
+    return { data: null, error: null };
+  }
+
   const { data, error } = await supabase
     .from('preferences')
     .select('data')
@@ -37,6 +43,12 @@ export async function fetchUserPreferences(userId: string) {
 }
 
 export async function upsertUserPreferences(userId: string, prefs: Record<string, unknown>) {
+  // Skip database operations for temporary offline users
+  if (userId.startsWith('temp-')) {
+    console.log('[supabase] Skipping preferences save for offline user');
+    return { data: { user_id: userId, data: prefs }, error: null };
+  }
+
   const payload = { user_id: userId, data: prefs };
   const { data, error } = await supabase
     .from('preferences')

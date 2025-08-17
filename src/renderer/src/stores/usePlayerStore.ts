@@ -18,6 +18,7 @@ export interface PlaybackState {
   currentTrack: Track | null;
   queue: Track[];
   queueIndex: number;
+  originalQueue: Track[]; // Store original order for shuffle toggle
   isPlaying: boolean;
   currentTime: number;
   duration: number;
@@ -65,6 +66,7 @@ export const usePlayerStore = create<PlayerStore>()(
       // Initial state
       currentTrack: null,
       queue: [],
+      originalQueue: [],
       queueIndex: -1,
       isPlaying: false,
       currentTime: 0,
@@ -117,10 +119,17 @@ export const usePlayerStore = create<PlayerStore>()(
         let nextIndex: number;
 
         if (shuffle) {
-          // Random next track (avoiding current)
-          do {
-            nextIndex = Math.floor(Math.random() * queue.length);
-          } while (nextIndex === queueIndex && queue.length > 1);
+          // In shuffle mode, just go to next in shuffled queue
+          nextIndex = queueIndex + 1;
+          
+          if (nextIndex >= queue.length) {
+            if (repeat === 'all') {
+              nextIndex = 0;
+            } else {
+              console.log('🔀 End of shuffled queue');
+              return; // End of shuffled queue
+            }
+          }
         } else {
           nextIndex = queueIndex + 1;
           
@@ -129,12 +138,15 @@ export const usePlayerStore = create<PlayerStore>()(
             if (repeat === 'all') {
               nextIndex = 0;
             } else {
+              console.log('⏭️ End of queue');
               return; // End of queue
             }
           }
         }
 
         const nextTrack = queue[nextIndex];
+        console.log('⏭️ Next track:', nextTrack?.title, 'at index:', nextIndex);
+        
         set({
           currentTrack: nextTrack,
           queueIndex: nextIndex,
@@ -151,6 +163,7 @@ export const usePlayerStore = create<PlayerStore>()(
 
         // If more than 3 seconds into track, restart current track
         if (currentTime > 3) {
+          console.log('⏮️ Restarting current track (>3s played)');
           set({ currentTime: 0 });
           return;
         }
@@ -166,6 +179,8 @@ export const usePlayerStore = create<PlayerStore>()(
         }
 
         const prevTrack = queue[prevIndex];
+        console.log('⏮️ Previous track:', prevTrack?.title, 'at index:', prevIndex);
+        
         set({
           currentTrack: prevTrack,
           queueIndex: prevIndex,
@@ -182,6 +197,7 @@ export const usePlayerStore = create<PlayerStore>()(
         const track = tracks[startIndex];
         set({
           queue: tracks,
+          originalQueue: [...tracks], // Store original order
           queueIndex: startIndex,
           currentTrack: track || null,
           currentTime: 0,
@@ -218,6 +234,7 @@ export const usePlayerStore = create<PlayerStore>()(
 
       clearQueue: () => set({
         queue: [],
+        originalQueue: [],
         queueIndex: -1,
         currentTrack: null,
         isPlaying: false,
@@ -236,7 +253,48 @@ export const usePlayerStore = create<PlayerStore>()(
       },
 
       toggleShuffle: () => {
-        set(state => ({ shuffle: !state.shuffle }));
+        set(state => {
+          const newShuffle = !state.shuffle;
+          console.log('🔀 Shuffle toggled:', newShuffle);
+
+          if (newShuffle) {
+            // Enable shuffle: create shuffled version of queue
+            const currentTrack = state.currentTrack;
+            if (!currentTrack || state.queue.length <= 1) {
+              return { shuffle: newShuffle };
+            }
+
+            // Create shuffled queue with current track first
+            const otherTracks = state.originalQueue.filter(track => track.id !== currentTrack.id);
+            const shuffledOthers = [...otherTracks].sort(() => Math.random() - 0.5);
+            const shuffledQueue = [currentTrack, ...shuffledOthers];
+
+            console.log('🔀 Created shuffled queue with', shuffledQueue.length, 'tracks, current track first');
+            
+            return {
+              shuffle: newShuffle,
+              queue: shuffledQueue,
+              queueIndex: 0, // Current track is now at index 0
+            };
+          } else {
+            // Disable shuffle: restore original order
+            const currentTrack = state.currentTrack;
+            if (!currentTrack || state.originalQueue.length === 0) {
+              return { shuffle: newShuffle, queue: state.originalQueue };
+            }
+
+            // Find current track in original queue
+            const originalIndex = state.originalQueue.findIndex(track => track.id === currentTrack.id);
+            
+            console.log('🔀 Restored original queue, current track at index:', originalIndex);
+            
+            return {
+              shuffle: newShuffle,
+              queue: state.originalQueue,
+              queueIndex: originalIndex >= 0 ? originalIndex : 0,
+            };
+          }
+        });
       },
 
       setRepeat: (mode: 'none' | 'one' | 'all') => {
@@ -263,6 +321,7 @@ export const usePlayerStore = create<PlayerStore>()(
         shuffle: state.shuffle,
         repeat: state.repeat,
         queue: state.queue,
+        originalQueue: state.originalQueue,
         queueIndex: state.queueIndex,
         currentTrack: state.currentTrack,
       }),
