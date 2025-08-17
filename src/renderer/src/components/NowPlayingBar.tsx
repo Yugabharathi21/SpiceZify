@@ -111,11 +111,22 @@ export default function NowPlayingBar() {
     if (currentTrack) {
       const srcUrl = buildFileUrl(currentTrack.path);
       if (audio.src !== srcUrl) {
-        audio.src = srcUrl;
+  audio.preload = 'auto';
+  audio.src = srcUrl;
       }
       
       if (isPlaying) {
-        audio.play().catch(console.error);
+        const playAudio = async () => {
+          try {
+            if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+              await audioContextRef.current.resume();
+            }
+            await audio.play();
+          } catch (err) {
+            console.error('Audio play failed:', err);
+          }
+        };
+        playAudio();
       } else {
         audio.pause();
       }
@@ -292,8 +303,8 @@ export default function NowPlayingBar() {
 
       window.setTimeout(() => {
         audio.pause();
-        audio.src = `file://${currentTrack.path}`;
-        audio.play().catch(console.error);
+        audio.src = buildFileUrl(currentTrack.path);
+        audio.play().catch((err) => console.error('Audio play failed after crossfade:', err));
         nextSource.disconnect();
         nextGain.disconnect();
       }, fadeDur * 1000 + 200);

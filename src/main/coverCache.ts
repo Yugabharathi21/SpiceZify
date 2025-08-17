@@ -15,9 +15,17 @@ export class CoverCache {
 
   private async ensureCacheDir(): Promise<void> {
     try {
+      const userDataDir = app.getPath('userData');
+      try {
+        await mkdir(userDataDir, { recursive: true });
+      } catch (err) {
+        // non-fatal: we'll try to create cache dir anyway
+        console.warn('Could not ensure userData dir exists:', err);
+      }
+
       await mkdir(this.cacheDir, { recursive: true });
     } catch (error) {
-      console.error('Error creating cache directory:', error);
+      console.error('Error creating cache directory:', error && (error as any).code, error);
     }
   }
 

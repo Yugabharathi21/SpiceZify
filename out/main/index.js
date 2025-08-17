@@ -402,9 +402,15 @@ class CoverCache {
   }
   async ensureCacheDir() {
     try {
+      const userDataDir = electron.app.getPath("userData");
+      try {
+        await promises.mkdir(userDataDir, { recursive: true });
+      } catch (err) {
+        console.warn("Could not ensure userData dir exists:", err);
+      }
       await promises.mkdir(this.cacheDir, { recursive: true });
     } catch (error) {
-      console.error("Error creating cache directory:", error);
+      console.error("Error creating cache directory:", error && error.code, error);
     }
   }
   async getCoverForTrack(trackId) {
