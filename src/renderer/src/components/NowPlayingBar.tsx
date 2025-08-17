@@ -106,10 +106,13 @@ export default function NowPlayingBar() {
     };
 
     const handleEnded = () => {
+      console.log('🔚 Track ended, repeat mode:', repeat);
       if (repeat === 'one') {
+        console.log('🔂 Repeating current track');
         audio.currentTime = 0;
         audio.play();
       } else {
+        console.log('⏭️ Moving to next track');
         next();
       }
     };
@@ -359,7 +362,9 @@ export default function NowPlayingBar() {
     const modes: Array<'none' | 'one' | 'all'> = ['none', 'all', 'one'];
     const currentIndex = modes.indexOf(repeat);
     const nextIndex = (currentIndex + 1) % modes.length;
-    setRepeat(modes[nextIndex]);
+    const nextMode = modes[nextIndex];
+    console.log('🔁 Repeat mode changed:', repeat, '→', nextMode);
+    setRepeat(nextMode);
   };
 
   // Persist settings to Supabase when user is present
@@ -462,7 +467,10 @@ export default function NowPlayingBar() {
           </button>
 
           <button
-            onClick={toggleShuffle}
+            onClick={() => {
+              console.log('🔀 Shuffle clicked, current state:', shuffle);
+              toggleShuffle();
+            }}
             className={`p-2 rounded-full transition-colors ${
               shuffle ? 'text-primary bg-primary/20' : 'hover:bg-muted/50'
             }`}
@@ -510,6 +518,7 @@ export default function NowPlayingBar() {
 
           <button
             onClick={cycleRepeat}
+            title={`Repeat: ${repeat === 'none' ? 'Off' : repeat === 'one' ? 'Track' : 'All'}`}
             className={`p-2 rounded-full transition-colors ${
               repeat !== 'none' ? 'text-primary bg-primary/20' : 'hover:bg-muted/50'
             }`}
