@@ -14,11 +14,19 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerStore } from '../stores/usePlayerStore';
+import { useSettingsStore } from '../stores/useSettingsStore';
+import { useAuthStore } from '../stores/useAuthStore';
+import { upsertUserPreferences } from '../lib/supabase';
 
 export default function NowPlayingBar() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const prevTrackRef = useRef<string | null>(null);
+  const compressorRef = useRef<DynamicsCompressorNode | null>(null);
 
   const {
     currentTrack,
@@ -41,6 +49,17 @@ export default function NowPlayingBar() {
     updateCurrentTime,
     updateDuration,
   } = usePlayerStore();
+
+  const {
+    audioQuality,
+    crossfade,
+    normalizeVolume,
+    setAudioQuality,
+    setCrossfade,
+    setNormalizeVolume,
+  } = useSettingsStore();
+
+  const { user } = useAuthStore();
 
   // Audio element event handlers
   useEffect(() => {
@@ -95,13 +114,102 @@ export default function NowPlayingBar() {
     }
   }, [currentTrack, isPlaying]);
 
+  // Initialize Web Audio API when audio element mounts
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    if (!audioContextRef.current) {
+      const win = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+      const AcCtor = win.AudioContext ?? win.webkitAudioContext;
+      if (!AcCtor) return;
+      const ac = new AcCtor();
+      audioContextRef.current = ac;
+      const source = ac.createMediaElementSource(audio);
+      sourceRef.current = source;
+
+      const gain = ac.createGain();
+      gain.gain.value = 1;
+      gainRef.current = gain;
+
+      const compressor = ac.createDynamicsCompressor();
+      compressor.threshold?.setValueAtTime(-24, ac.currentTime);
+      compressor.knee?.setValueAtTime(30, ac.currentTime);
+      compressor.ratio?.setValueAtTime(12, ac.currentTime);
+      compressor.attack?.setValueAtTime(0.003, ac.currentTime);
+      compressor.release?.setValueAtTime(0.25, ac.currentTime);
+      compressorRef.current = compressor;
+
+      // Connect: source -> compressor (if enabled) -> gain -> destination
+      source.connect(compressor);
+      compressor.connect(gain);
+      gain.connect(ac.destination);
+    }
+
+    return () => {
+      // keep context alive for the session; optional cleanup could close it here
+    };
+  }, []);
+
   // Sync volume
   useEffect(() => {
     const audio = audioRef.current;
-    if (audio) {
+    const gain = gainRef.current;
+    if (gain) {
+      const target = isMuted ? 0 : volume;
+      gain.gain.value = target;
+    } else if (audio) {
       audio.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
+
+  // Apply normalize setting to compressor bypass
+  useEffect(() => {
+    const compressor = compressorRef.current;
+    if (!compressor) return;
+    if (normalizeVolume) {
+      compressor.threshold?.setValueAtTime(-20, audioContextRef.current!.currentTime);
+      compressor.ratio?.setValueAtTime(8, audioContextRef.current!.currentTime);
+    } else {
+      compressor.threshold?.setValueAtTime(-100, audioContextRef.current!.currentTime);
+      compressor.ratio?.setValueAtTime(1, audioContextRef.current!.currentTime);
+    }
+  }, [normalizeVolume]);
+
+  // Apply audio quality by adjusting playbackRate as a simple simulation
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+  // Map stored quality to simulated playbackRate
+  if (audioQuality === 'low') audio.playbackRate = 0.95;
+  else if (audioQuality === 'normal') audio.playbackRate = 1;
+  else if (audioQuality === 'high') audio.playbackRate = 1.02;
+  else audio.playbackRate = 1;
+  }, [audioQuality]);
+
+  // Persist settings to Supabase when user is present
+  useEffect(() => {
+    if (!user) return;
+    const prefs = { audioQuality, crossfade: crossfade > 0, normalizeVolume };
+    // fire-and-forget
+    upsertUserPreferences(user.id, prefs).catch(console.error);
+  }, [user, audioQuality, crossfade, normalizeVolume]);
+
+  // Handlers for UI controls
+  const cycleAudioQuality = () => {
+    if (audioQuality === 'low') setAudioQuality('normal');
+    else if (audioQuality === 'normal') setAudioQuality('high');
+    else setAudioQuality('low');
+  };
+
+  const toggleCrossfade = () => {
+    if (crossfade > 0) setCrossfade(0);
+    else setCrossfade(4);
+  };
+
+  const toggleNormalize = () => {
+    setNormalizeVolume(!normalizeVolume);
+  };
 
   // Sync current time
   useEffect(() => {
@@ -144,6 +252,47 @@ export default function NowPlayingBar() {
     const nextIndex = (currentIndex + 1) % modes.length;
     setRepeat(modes[nextIndex]);
   };
+
+  // Crossfade handling when currentTrack changes
+  useEffect(() => {
+    const ac = audioContextRef.current;
+    const gain = gainRef.current;
+    const audio = audioRef.current;
+    if (!ac || !gain || !audio) return;
+
+    const prev = prevTrackRef.current;
+    if (prev && currentTrack && crossfade > 0) {
+      const nextAudio = new Audio(`file://${currentTrack.path}`);
+      nextAudio.preload = 'auto';
+      const nextSource = ac.createMediaElementSource(nextAudio);
+      const nextGain = ac.createGain();
+      nextGain.gain.value = 0;
+      nextSource.connect(nextGain);
+      nextGain.connect(ac.destination);
+
+      const fadeDur = Math.min(Math.max(crossfade, 3), 5);
+      const now = ac.currentTime;
+
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + fadeDur);
+
+      nextGain.gain.setValueAtTime(0, now);
+      nextGain.gain.linearRampToValueAtTime(1, now + fadeDur);
+
+      nextAudio.play().catch(console.error);
+
+      window.setTimeout(() => {
+        audio.pause();
+        audio.src = `file://${currentTrack.path}`;
+        audio.play().catch(console.error);
+        nextSource.disconnect();
+        nextGain.disconnect();
+      }, fadeDur * 1000 + 200);
+    }
+
+    prevTrackRef.current = currentTrack ? `file://${currentTrack.path}` : null;
+  }, [currentTrack, crossfade]);
 
   if (!currentTrack) {
     return (
@@ -209,6 +358,31 @@ export default function NowPlayingBar() {
 
         {/* Controls */}
         <div className="flex items-center gap-4">
+          {/* Audio quality / Crossfade / Normalize buttons */}
+          <button
+            onClick={cycleAudioQuality}
+            title={`Audio Quality: ${audioQuality}`}
+            className={`p-2 rounded-full transition-colors ${audioQuality !== 'normal' ? 'text-primary bg-primary/10' : 'hover:bg-muted/50'}`}
+          >
+            🎚️
+          </button>
+
+          <button
+            onClick={toggleCrossfade}
+            title={`Crossfade: ${crossfade > 0 ? `${crossfade}s` : 'Off'}`}
+            className={`p-2 rounded-full transition-colors ${crossfade > 0 ? 'text-primary bg-primary/10' : 'hover:bg-muted/50'}`}
+          >
+            🔀
+          </button>
+
+          <button
+            onClick={toggleNormalize}
+            title={`Normalize: ${normalizeVolume ? 'On' : 'Off'}`}
+            className={`p-2 rounded-full transition-colors ${normalizeVolume ? 'text-primary bg-primary/10' : 'hover:bg-muted/50'}`}
+          >
+            🔊
+          </button>
+
           <button
             onClick={toggleShuffle}
             className={`p-2 rounded-full transition-colors ${

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { fetchUserPreferences } from '../lib/supabase';
+import { useSettingsStore } from './useSettingsStore';
 
 interface User {
   id: string;
@@ -42,6 +44,19 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true, 
             isLoading: false 
           });
+          // load user prefs from Supabase if available
+          try {
+            const res = await fetchUserPreferences(user.id);
+            if (res.data) {
+              const s = useSettingsStore.getState();
+              const prefs = res.data as any;
+              if (prefs.audioQuality) s.setAudioQuality(prefs.audioQuality);
+              if (typeof prefs.crossfade === 'boolean') s.setCrossfade(prefs.crossfade ? 4 : 0);
+              if (typeof prefs.normalizeVolume === 'boolean') s.setNormalizeVolume(prefs.normalizeVolume);
+            }
+          } catch (e) {
+            // ignore
+          }
         } catch (error) {
           set({ isLoading: false });
           throw error;
@@ -65,6 +80,19 @@ export const useAuthStore = create<AuthState>()(
             isAuthenticated: true, 
             isLoading: false 
           });
+          // load user prefs (same as login)
+          try {
+            const res = await fetchUserPreferences(user.id);
+            if (res.data) {
+              const s = useSettingsStore.getState();
+              const prefs = res.data as any;
+              if (prefs.audioQuality) s.setAudioQuality(prefs.audioQuality);
+              if (typeof prefs.crossfade === 'boolean') s.setCrossfade(prefs.crossfade ? 4 : 0);
+              if (typeof prefs.normalizeVolume === 'boolean') s.setNormalizeVolume(prefs.normalizeVolume);
+            }
+          } catch (e) {
+            // ignore
+          }
         } catch (error) {
           set({ isLoading: false });
           throw error;

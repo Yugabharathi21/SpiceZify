@@ -1,10 +1,27 @@
 import React from 'react';
 import { Settings as SettingsIcon, User, Music, Volume2, Wifi, Shield, Palette } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import { upsertUserPreferences } from '../lib/supabase';
+import { motion } from 'framer-motion';
 
 export default function Settings() {
   const { user, logout } = useAuthStore();
+  const {
+    audioQuality,
+    crossfade,
+    normalizeVolume,
+    setAudioQuality,
+    setCrossfade,
+    setNormalizeVolume,
+  } = useSettingsStore();
+
+  // persist changes for logged-in users
+  React.useEffect(() => {
+    if (!user) return;
+    const prefs = { audioQuality, crossfade: crossfade > 0, normalizeVolume };
+    upsertUserPreferences(user.id, prefs).catch(console.error);
+  }, [user, audioQuality, crossfade, normalizeVolume]);
 
   const settingSections = [
     {
@@ -16,15 +33,12 @@ export default function Settings() {
         { label: 'Sign Out', description: 'Sign out of your account', action: logout, destructive: true },
       ]
     },
-    {
-      title: 'Audio',
-      icon: Volume2,
-      settings: [
-        { label: 'Audio Quality', description: 'Choose your preferred audio quality', action: () => {} },
-        { label: 'Crossfade', description: 'Smooth transitions between songs', action: () => {} },
-        { label: 'Normalize Volume', description: 'Maintain consistent volume levels', action: () => {} },
-      ]
-    },
+        // Audio section rendered directly
+        {
+          title: 'Audio',
+          icon: Volume2,
+          settings: [],
+        },
     {
       title: 'Library',
       icon: Music,
@@ -114,33 +128,65 @@ export default function Settings() {
                 {section.title}
               </h2>
             </div>
-            <div className="divide-y divide-border">
-              {section.settings.map((setting, index) => (
-                <button
-                  key={index}
-                  onClick={setting.action}
-                  className={`w-full p-6 text-left hover:bg-muted/30 transition-colors group ${
-                    setting.destructive ? 'hover:bg-destructive/10' : ''
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className={`font-medium group-hover:text-foreground transition-colors ${
-                        setting.destructive ? 'text-destructive' : 'text-foreground'
-                      }`}>
-                        {setting.label}
-                      </h3>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {setting.description}
-                      </p>
-                    </div>
-                    <div className="text-muted-foreground group-hover:text-foreground transition-colors">
-                      →
-                    </div>
+            {section.title === 'Audio' ? (
+              <div className="p-6 space-y-4">
+                <div>
+                  <h3 className="font-medium">Audio Quality</h3>
+                  <p className="text-sm text-muted-foreground">Choose your preferred audio quality</p>
+                  <div className="mt-2 flex gap-2">
+                    <button onClick={() => setAudioQuality('low')} className={`px-3 py-1 rounded ${audioQuality === 'low' ? 'bg-primary text-primary-foreground' : 'bg-card/10'}`}>Low</button>
+                    <button onClick={() => setAudioQuality('normal')} className={`px-3 py-1 rounded ${audioQuality === 'normal' ? 'bg-primary text-primary-foreground' : 'bg-card/10'}`}>Medium</button>
+                    <button onClick={() => setAudioQuality('high')} className={`px-3 py-1 rounded ${audioQuality === 'high' ? 'bg-primary text-primary-foreground' : 'bg-card/10'}`}>High</button>
                   </div>
-                </button>
-              ))}
-            </div>
+                </div>
+
+                <div>
+                  <h3 className="font-medium">Crossfade</h3>
+                  <p className="text-sm text-muted-foreground">Smooth transitions between songs (seconds)</p>
+                  <div className="mt-2 flex items-center gap-3">
+                    <button onClick={() => setCrossfade(0)} className={`px-3 py-1 rounded ${crossfade === 0 ? 'bg-primary text-primary-foreground' : 'bg-card/10'}`}>Off</button>
+                    <input type="range" min={0} max={5} value={crossfade} onChange={(e) => setCrossfade(Number(e.target.value))} className="flex-1" />
+                    <div className="w-12 text-right">{crossfade}s</div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="font-medium">Normalize Volume</h3>
+                  <p className="text-sm text-muted-foreground">Maintain consistent volume levels</p>
+                  <div className="mt-2">
+                    <button onClick={() => setNormalizeVolume(!normalizeVolume)} className={`px-3 py-1 rounded ${normalizeVolume ? 'bg-primary text-primary-foreground' : 'bg-card/10'}`}>{normalizeVolume ? 'On' : 'Off'}</button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {section.settings.map((setting, index) => (
+                  <button
+                    key={index}
+                    onClick={setting.action}
+                    className={`w-full p-6 text-left hover:bg-muted/30 transition-colors group ${
+                      setting.destructive ? 'hover:bg-destructive/10' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className={`font-medium group-hover:text-foreground transition-colors ${
+                          setting.destructive ? 'text-destructive' : 'text-foreground'
+                        }`}>
+                          {setting.label}
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {setting.description}
+                        </p>
+                      </div>
+                      <div className="text-muted-foreground group-hover:text-foreground transition-colors">
+                        →
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </motion.section>
         ))}
 
