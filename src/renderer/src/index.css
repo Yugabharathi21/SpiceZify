@@ -261,3 +261,75 @@ body {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
+
+/* Album Cards */
+.album-card {
+  @apply transition-all duration-300 hover:bg-card/50 rounded-xl p-3;
+  cursor: pointer;
+}
+
+.album-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.4);
+}
+
+.album-card:hover .album-cover {
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5);
+}
+
+/* Enhanced Track List */
+.track-item {
+  @apply transition-all duration-200 hover:bg-muted/30 rounded-lg cursor-pointer;
+  border: 1px solid transparent;
+}
+
+.track-item:hover {
+  border-color: hsl(var(--border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Album Page Enhancements */
+.album-gradient-bg {
+  background: linear-gradient(180deg, 
+    rgba(59, 130, 246, 0.3) 0%, 
+    rgba(0, 0, 0, 0.8) 70%,
+    rgba(0, 0, 0, 1) 100%);
+}
+
+/* View Mode Buttons */
+.view-mode-btn {
+  @apply p-2 rounded-lg transition-all duration-200;
+}
+
+.view-mode-btn.active {
+  @apply bg-primary text-primary-foreground shadow-md;
+  transform: scale(1.05);
+}
+
+.view-mode-btn:not(.active) {
+  @apply text-muted-foreground hover:text-foreground hover:bg-muted/50;
+}
+
+/* Album List View */
+.album-list-item {
+  @apply flex items-center gap-4 p-3 rounded-lg hover:bg-muted/30 transition-all duration-200 cursor-pointer;
+  border: 1px solid transparent;
+}
+
+.album-list-item:hover {
+  border-color: hsl(var(--border));
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Loading States */
+.album-cover-loading {
+  @apply animate-pulse bg-muted;
+}
+
+/* Text truncation utilities */
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

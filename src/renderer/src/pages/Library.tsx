@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FolderPlus, RefreshCw } from 'lucide-react';
+import { Plus, FolderPlus, RefreshCw, Grid3X3, List, Play } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
-import { useLibraryStore } from '../stores/useLibraryStore';
-import TrackList from '../components/TrackList';
+import { useNavigate } from 'react-router-dom';
+import { useLibraryStore, Album } from '../stores/useLibraryStore';
 import { usePlayerStore, Track } from '../stores/usePlayerStore';
+import TrackList from '../components/TrackList';
+import AlbumCover from '../components/AlbumCover';
 
 export default function Library() {
   const [view, setView] = useState<'tracks' | 'albums' | 'artists'>('tracks');
+  const navigate = useNavigate();
   const {
     tracks,
     albums,
@@ -16,7 +19,10 @@ export default function Library() {
     scanProgress,
     currentScanFile,
     loadLibrary,
-    scanFolders
+    scanFolders,
+    albumsViewMode,
+    setAlbumsViewMode,
+    getAlbumTracks
   } = useLibraryStore();
   const { play, setQueue } = usePlayerStore();
 
@@ -48,6 +54,22 @@ export default function Library() {
     play(track);
     
     console.log('🎵 Playing track:', track.title, 'at index:', trackIndex, 'of', tracks.length, 'tracks');
+  };
+
+  const handleAlbumClick = (album: Album) => {
+    navigate(`/album/${album.id}`);
+  };
+
+  const handlePlayAlbum = (album: Album, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation
+    
+    const albumTracks = getAlbumTracks(album.id);
+    if (albumTracks.length === 0) return;
+
+    setQueue(albumTracks, 0);
+    play(albumTracks[0]);
+    
+    console.log('🎵 Playing album:', album.name, 'with', albumTracks.length, 'tracks');
   };
 
   const viewButtons = [
@@ -188,33 +210,143 @@ export default function Library() {
 
         {view === 'albums' && (
           <div className="p-8">
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-              {albums.map((album, index) => (
-                <motion.div
-                  key={album.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="album-card"
+            {/* View Mode Toggle */}
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-semibold">Albums</h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAlbumsViewMode('grid')}
+                  className={`p-2 rounded-lg transition-colors ${
+                    albumsViewMode === 'grid' 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
                 >
-                  <div className="aspect-square bg-muted rounded-xl mb-4 overflow-hidden">
-                    <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                      <div className="w-12 h-12 bg-muted-foreground/20 rounded" />
-                    </div>
-                  </div>
-                  <h3 className="font-semibold text-base truncate mb-1">
-                    {album.name}
-                  </h3>
-                  <p className="text-sm text-muted-foreground truncate mb-1">
-                    {album.artist_name || 'Various Artists'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {album.track_count} song{album.track_count !== 1 ? 's' : ''}
-                    {album.year && ` • ${album.year}`}
-                  </p>
-                </motion.div>
-              ))}
+                  <Grid3X3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setAlbumsViewMode('list')}
+                  className={`p-2 rounded-lg transition-colors ${
+                    albumsViewMode === 'list' 
+                      ? 'bg-primary text-primary-foreground' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <List className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {/* Albums Grid/List View */}
+            {albumsViewMode === 'grid' ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+                {albums.map((album, index) => {
+                  const albumTracks = getAlbumTracks(album.id);
+                  const representativeTrack = albumTracks[0];
+                  
+                  return (
+                    <motion.div
+                      key={album.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className="album-card group cursor-pointer"
+                      onClick={() => handleAlbumClick(album)}
+                    >
+                      <div className="aspect-square bg-muted rounded-xl mb-4 overflow-hidden relative">
+                        {representativeTrack ? (
+                          <AlbumCover
+                            trackId={representativeTrack.id}
+                            className="w-full h-full"
+                            size="custom"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
+                            <div className="w-12 h-12 bg-muted-foreground/20 rounded" />
+                          </div>
+                        )}
+                        {/* Play Button Overlay */}
+                        <button
+                          onClick={(e) => handlePlayAlbum(album, e)}
+                          className="absolute bottom-2 right-2 w-12 h-12 bg-primary rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform translate-y-2 group-hover:translate-y-0 transition-all duration-300 hover:scale-105"
+                        >
+                          <Play className="w-5 h-5 text-primary-foreground ml-0.5" />
+                        </button>
+                      </div>
+                      <h3 className="font-semibold text-base truncate mb-1">
+                        {album.name}
+                      </h3>
+                      <p className="text-sm text-muted-foreground truncate mb-1">
+                        {album.artist_name || 'Various Artists'}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {albumTracks.length} song{albumTracks.length !== 1 ? 's' : ''}
+                        {album.year && ` • ${album.year}`}
+                      </p>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {albums.map((album, index) => {
+                  const albumTracks = getAlbumTracks(album.id);
+                  const representativeTrack = albumTracks[0];
+                  
+                  return (
+                    <motion.div
+                      key={album.id}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.02 }}
+                      className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors group cursor-pointer"
+                      onClick={() => handleAlbumClick(album)}
+                    >
+                      {/* Album Cover */}
+                      <div className="w-16 h-16 bg-muted rounded-lg overflow-hidden flex-shrink-0">
+                        {representativeTrack ? (
+                          <AlbumCover
+                            trackId={representativeTrack.id}
+                            className="w-full h-full"
+                            size="custom"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
+                            <div className="w-6 h-6 bg-muted-foreground/20 rounded" />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Album Info */}
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold truncate mb-1">
+                          {album.name}
+                        </h3>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span className="truncate">{album.artist_name || 'Various Artists'}</span>
+                          <span>•</span>
+                          <span>{albumTracks.length} song{albumTracks.length !== 1 ? 's' : ''}</span>
+                          {album.year && (
+                            <>
+                              <span>•</span>
+                              <span>{album.year}</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Play Button */}
+                      <button
+                        onClick={(e) => handlePlayAlbum(album, e)}
+                        className="w-10 h-10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-primary hover:text-primary-foreground transition-all"
+                      >
+                        <Play className="w-4 h-4 ml-0.5" />
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

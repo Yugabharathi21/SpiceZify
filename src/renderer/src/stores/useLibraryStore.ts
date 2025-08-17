@@ -5,9 +5,24 @@ export interface Album {
   id: number;
   name: string;
   artist_name?: string;
+  artist_id?: string;
+  description?: string;
   year?: number;
+  genre?: string;
+  cover_url?: string;
   cover_path?: string;
-  track_count?: number;
+  total_tracks?: number;
+  total_duration?: number; // in seconds
+  release_date?: string;
+  record_label?: string;
+  created_at?: string;
+  updated_at?: string;
+  user_id?: string;
+  // Computed fields
+  tracks?: Track[];
+  is_favorite?: boolean;
+  play_count?: number;
+  last_played?: string;
 }
 
 export interface Artist {
@@ -33,6 +48,13 @@ interface LibraryState {
   scanProgress: number;
   currentScanFile: string;
   
+  // Current album (for album page)
+  currentAlbum: Album | null;
+  currentAlbumTracks: Track[];
+  
+  // View state
+  albumsViewMode: 'grid' | 'list';
+  
   // Actions
   setTracks: (tracks: Track[]) => void;
   setAlbums: (albums: Album[]) => void;
@@ -40,12 +62,19 @@ interface LibraryState {
   setPlaylists: (playlists: Playlist[]) => void;
   setScanProgress: (progress: number, currentFile: string) => void;
   setIsScanning: (isScanning: boolean) => void;
+  setAlbumsViewMode: (mode: 'grid' | 'list') => void;
   
   // Library operations
   loadLibrary: () => Promise<void>;
   scanFolders: (folders: string[]) => Promise<void>;
   searchLibrary: (query: string) => Promise<{ tracks: Track[]; albums: Album[]; artists: Artist[] }>;
   loadTrackCover: (trackId: number) => Promise<string | null>;
+  
+  // Album-specific operations
+  loadAlbum: (albumId: number) => Promise<void>;
+  getAlbumTracks: (albumId: number) => Track[];
+  toggleAlbumFavorite: (albumId: number) => Promise<void>;
+  playAlbum: (album: Album, startTrackIndex?: number) => { tracks: Track[]; startIndex: number } | void;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
@@ -56,6 +85,11 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   isScanning: false,
   scanProgress: 0,
   currentScanFile: '',
+  
+  // Album-specific state
+  currentAlbum: null,
+  currentAlbumTracks: [],
+  albumsViewMode: 'grid',
 
   setTracks: (tracks) => set({ tracks }),
   setAlbums: (albums) => set({ albums }),
@@ -66,6 +100,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set({ scanProgress: progress, currentScanFile: currentFile }),
   
   setIsScanning: (isScanning) => set({ isScanning }),
+  
+  setAlbumsViewMode: (mode) => set({ albumsViewMode: mode }),
 
   loadLibrary: async () => {
     try {
@@ -129,5 +165,68 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       console.error('Error loading track cover:', error);
       return null;
     }
+  },
+
+  // Album-specific operations
+  loadAlbum: async (albumId: number) => {
+    try {
+      // Find album in current albums list
+      const album = get().albums.find(a => a.id === albumId);
+      if (!album) {
+        throw new Error(`Album with ID ${albumId} not found`);
+      }
+
+      // Get tracks for this album
+      const albumTracks = get().getAlbumTracks(albumId);
+      
+      set({ 
+        currentAlbum: { ...album, tracks: albumTracks }, 
+        currentAlbumTracks: albumTracks 
+      });
+    } catch (error) {
+      console.error('Error loading album:', error);
+      throw error;
+    }
+  },
+
+  getAlbumTracks: (albumId: number) => {
+    const { tracks } = get();
+    return tracks.filter(track => 
+      track.album_name === get().albums.find(a => a.id === albumId)?.name
+    ).sort((a, b) => {
+      // Sort by track number if available
+      const trackA = a.track_no || 0;
+      const trackB = b.track_no || 0;
+      return trackA - trackB;
+    });
+  },
+
+  toggleAlbumFavorite: async (albumId: number) => {
+    try {
+      // TODO: Implement favorite toggle with Supabase
+      console.log('Toggle album favorite:', albumId);
+      
+      // For now, just update local state
+      const albums = get().albums.map(album => 
+        album.id === albumId 
+          ? { ...album, is_favorite: !album.is_favorite }
+          : album
+      );
+      set({ albums });
+    } catch (error) {
+      console.error('Error toggling album favorite:', error);
+    }
+  },
+
+  playAlbum: (album: Album, startTrackIndex: number = 0) => {
+    const albumTracks = get().getAlbumTracks(album.id);
+    if (albumTracks.length === 0) return;
+
+    // We'll let the calling component handle the actual playback
+    // to avoid circular dependencies between stores
+    console.log('🎵 Preparing to play album:', album.name, 'starting at track:', startTrackIndex);
+    
+    // Return the tracks and index for the caller to handle
+    return { tracks: albumTracks, startIndex: startTrackIndex };
   },
 }));
