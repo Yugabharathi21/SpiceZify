@@ -201,4 +201,35 @@ export function initializeIPC(mainWindow: BrowserWindow): void {
       throw error;
     }
   });
+
+  // Fullscreen controls
+  ipcMain.handle('window:toggleFullscreen', async () => {
+    try {
+      const isFullscreen = mainWindow.isFullScreen();
+      mainWindow.setFullScreen(!isFullscreen);
+      return !isFullscreen;
+    } catch (error) {
+      console.error('Toggle fullscreen error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('window:exitFullscreen', async () => {
+    try {
+      mainWindow.setFullScreen(false);
+      return false;
+    } catch (error) {
+      console.error('Exit fullscreen error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('window:isFullscreen', async () => {
+    try {
+      return mainWindow.isFullScreen();
+    } catch (error) {
+      console.error('Check fullscreen error:', error);
+      return false;
+    }
+  });
 }

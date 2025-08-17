@@ -16,6 +16,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { usePlayerStore } from '../stores/usePlayerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAuthStore } from '../stores/useAuthStore';
+import FullscreenPlayer from './FullscreenPlayer';
+import AlbumCover from './AlbumCover';
 
 export default function NowPlayingBar() {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -23,12 +25,12 @@ export default function NowPlayingBar() {
   const activeIsARef = useRef(true);
   const isDragging = false;
   const [showVolumeSlider, setShowVolumeSlider] = useState(false);
+  const [showFullscreen, setShowFullscreen] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const sourceBRef = useRef<MediaElementAudioSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const gainBRef = useRef<GainNode | null>(null);
-  const prevTrackRef = useRef<string | null>(null);
   const compressorRef = useRef<DynamicsCompressorNode | null>(null);
 
   const {
@@ -387,45 +389,40 @@ export default function NowPlayingBar() {
   const RepeatIcon = getRepeatIcon();
 
   return (
-    <div className="h-24 bg-card/80 backdrop-blur-xl border-t border-border">
-      <audio ref={audioRef} />
-      <audio ref={audioBRef} />
-      
-      {/* Progress Bar */}
-      <div className="px-4 pt-2">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{formatTime(currentTime)}</span>
-          <div 
-            className="flex-1 progress-bar cursor-pointer"
-            onClick={handleProgressClick}
-          >
+    <>
+      <div className="h-24 bg-card/80 backdrop-blur-xl border-t border-border">
+        <audio ref={audioRef} />
+        <audio ref={audioBRef} />
+        
+        {/* Progress Bar */}
+        <div className="px-4 pt-2">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{formatTime(currentTime)}</span>
             <div 
-              className="progress-fill"
-              style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-            />
-            <div 
-              className="progress-thumb"
-              style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }}
-            />
+              className="flex-1 progress-bar cursor-pointer"
+              onClick={handleProgressClick}
+            >
+              <div 
+                className="progress-fill"
+                style={{ width: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+              <div 
+                className="progress-thumb"
+                style={{ left: `${duration ? (currentTime / duration) * 100 : 0}%` }}
+              />
+            </div>
+            <span>{formatTime(duration)}</span>
           </div>
-          <span>{formatTime(duration)}</span>
         </div>
-      </div>
 
-      <div className="flex items-center justify-between px-4 py-3">
+        <div className="flex items-center justify-between px-4 py-3">
         {/* Track Info */}
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="w-12 h-12 bg-muted rounded-lg flex items-center justify-center overflow-hidden">
-            {currentTrack.cover ? (
-              <img 
-                src={currentTrack.cover} 
-                alt="Album art"
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-6 h-6 bg-muted-foreground/20 rounded" />
-            )}
-          </div>
+          <AlbumCover 
+            trackId={currentTrack.id}
+            size="medium"
+            className="flex-shrink-0"
+          />
           <div className="min-w-0 flex-1">
             <h3 className="font-medium text-sm truncate">
               {currentTrack.title}
@@ -561,11 +558,23 @@ export default function NowPlayingBar() {
             </AnimatePresence>
           </div>
 
-          <button className="p-2 hover:bg-muted/50 rounded-full transition-colors">
+          <button 
+            onClick={() => setShowFullscreen(true)}
+            className="p-2 hover:bg-muted/50 rounded-full transition-colors"
+            title="Fullscreen Player"
+          >
             <Maximize2 className="w-4 h-4" />
           </button>
         </div>
       </div>
-    </div>
+      </div>
+
+      {/* Fullscreen Player */}
+      <FullscreenPlayer 
+        isOpen={showFullscreen}
+        onClose={() => setShowFullscreen(false)}
+        audioElement={audioRef.current}
+      />
+    </>
   );
 }
