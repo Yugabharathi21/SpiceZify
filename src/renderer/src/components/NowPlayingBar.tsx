@@ -92,14 +92,27 @@ export default function NowPlayingBar() {
       }
     };
 
+    const handleError = () => {
+      try {
+        // Log detailed media error info
+        // @ts-ignore
+        const err = audio.error;
+        console.error('Audio element error:', err, 'readyState:', audio.readyState, 'networkState:', audio.networkState);
+      } catch (e) {
+        console.error('Error reading audio error object', e);
+      }
+    };
+
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     audio.addEventListener('ended', handleEnded);
+  audio.addEventListener('error', handleError);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
       audio.removeEventListener('ended', handleEnded);
+  audio.removeEventListener('error', handleError);
     };
   }, [isDragging, repeat, next, updateCurrentTime, updateDuration]);
 
@@ -111,19 +124,28 @@ export default function NowPlayingBar() {
     if (currentTrack) {
       const srcUrl = buildFileUrl(currentTrack.path);
       if (audio.src !== srcUrl) {
-  audio.preload = 'auto';
-  audio.src = srcUrl;
+        console.debug('Assigning audio.src =', srcUrl);
+        audio.preload = 'auto';
+        audio.src = srcUrl;
+        console.debug('audio.readyState after src assign:', audio.readyState, 'audioContext.state:', audioContextRef.current?.state);
       }
       
       if (isPlaying) {
         const playAudio = async () => {
           try {
+            console.debug('Attempting to play audio. audio.src:', audio.src, 'readyState:', audio.readyState, 'audioContext.state:', audioContextRef.current?.state);
             if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+              console.debug('Resuming suspended AudioContext...');
               await audioContextRef.current.resume();
+              console.debug('AudioContext state after resume:', audioContextRef.current.state);
             }
-            await audio.play();
+            const p = audio.play();
+            if (p && typeof p.then === 'function') {
+              await p;
+            }
+            console.debug('Play promise resolved. audio.paused:', audio.paused, 'currentTime:', audio.currentTime);
           } catch (err) {
-            console.error('Audio play failed:', err);
+            console.error('Audio play failed:', err, 'audio.error:', audio.error);
           }
         };
         playAudio();
