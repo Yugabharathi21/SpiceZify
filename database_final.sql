@@ -486,3 +486,173 @@ COMMIT;
 -- 3. Check that profiles are created automatically in Database > profiles table
 -- 
 -- ============================================================================
+
+-- ============================================================================
+-- DUPLICATE ALBUMS FIX - INTEGRATED
+-- ============================================================================
+-- This section fixes duplicate albums and prevents future duplicates
+-- ============================================================================
+
+-- Check if required tables exist first
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'artists') THEN
+        RAISE NOTICE 'artists table does not exist yet - will be created by albums enhancement';
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'albums') THEN
+        RAISE NOTICE 'albums table does not exist yet - will be created by albums enhancement';
+    END IF;
+END $$;
+
+-- Function to fix duplicates (will be called after albums are created)
+CREATE OR REPLACE FUNCTION public.fix_duplicate_albums()
+RETURNS TEXT AS $$
+DECLARE
+    result_text TEXT := '';
+BEGIN
+    -- Check if tables exist before proceeding
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'artists') OR
+       NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'albums') THEN
+        RETURN 'Skipped: Required tables not found. Run albums enhancement first.';
+    END IF;
+
+    -- Add normalized_name columns if they don't exist
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'artists' AND column_name = 'normalized_name'
+    ) THEN
+        ALTER TABLE public.artists ADD COLUMN normalized_name TEXT;
+        result_text := result_text || 'Added normalized_name to artists. ';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_name = 'albums' AND column_name = 'normalized_name'
+    ) THEN
+        ALTER TABLE public.albums ADD COLUMN normalized_name TEXT;
+        result_text := result_text || 'Added normalized_name to albums. ';
+    END IF;
+
+    -- Populate normalized names
+    UPDATE public.artists 
+    SET normalized_name = TRIM(UPPER(name)) 
+    WHERE normalized_name IS NULL OR normalized_name = '';
+    
+    UPDATE public.albums 
+    SET normalized_name = TRIM(UPPER(name)) 
+    WHERE normalized_name IS NULL OR normalized_name = '';
+    
+    result_text := result_text || 'Populated normalized names. ';
+
+    -- Create temp table with artist duplicates
+    CREATE TEMP TABLE IF NOT EXISTS artist_duplicates AS
+    SELECT 
+        normalized_name,
+        MIN(id) as keep_id,
+        ARRAY_AGG(id ORDER BY created_at, id) as all_ids
+    FROM public.artists 
+    GROUP BY normalized_name 
+    HAVING COUNT(*) > 1;
+
+    -- Update references and delete duplicate artists
+    IF EXISTS (SELECT 1 FROM artist_duplicates) THEN
+        UPDATE public.tracks 
+        SET artist_id = ad.keep_id
+        FROM artist_duplicates ad
+        WHERE tracks.artist_id = ANY(ad.all_ids) 
+          AND tracks.artist_id != ad.keep_id;
+
+        UPDATE public.albums 
+        SET artist_id = ad.keep_id
+        FROM artist_duplicates ad
+        WHERE albums.artist_id = ANY(ad.all_ids) 
+          AND albums.artist_id != ad.keep_id;
+
+        DELETE FROM public.artists 
+        WHERE id IN (
+            SELECT UNNEST(all_ids[2:]) FROM artist_duplicates
+        );
+        
+        result_text := result_text || 'Fixed duplicate artists. ';
+    END IF;
+
+    -- Create temp table with album duplicates
+    CREATE TEMP TABLE IF NOT EXISTS album_duplicates AS
+    SELECT 
+        normalized_name,
+        artist_id,
+        MIN(id) as keep_id,
+        ARRAY_AGG(id ORDER BY created_at, id) as all_ids
+    FROM public.albums 
+    GROUP BY normalized_name, artist_id 
+    HAVING COUNT(*) > 1;
+
+    -- Update references and delete duplicate albums
+    IF EXISTS (SELECT 1 FROM album_duplicates) THEN
+        UPDATE public.tracks 
+        SET album_id = ad.keep_id
+        FROM album_duplicates ad
+        WHERE tracks.album_id = ANY(ad.all_ids) 
+          AND tracks.album_id != ad.keep_id;
+
+        -- Update other tables that might reference albums
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'favorites') THEN
+            UPDATE public.favorites 
+            SET item_id = ad.keep_id::text
+            FROM album_duplicates ad
+            WHERE favorites.item_type = 'album' 
+              AND favorites.item_id::uuid = ANY(ad.all_ids) 
+              AND favorites.item_id::uuid != ad.keep_id;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'album_plays') THEN
+            UPDATE public.album_plays 
+            SET album_id = ad.keep_id
+            FROM album_duplicates ad
+            WHERE album_plays.album_id = ANY(ad.all_ids) 
+              AND album_plays.album_id != ad.keep_id;
+        END IF;
+
+        DELETE FROM public.albums 
+        WHERE id IN (
+            SELECT UNNEST(all_ids[2:]) FROM album_duplicates
+        );
+        
+        result_text := result_text || 'Fixed duplicate albums. ';
+    END IF;
+
+    -- Add unique constraints
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'artists_normalized_name_unique'
+    ) THEN
+        ALTER TABLE public.artists ALTER COLUMN normalized_name SET NOT NULL;
+        ALTER TABLE public.artists ADD CONSTRAINT artists_normalized_name_unique UNIQUE (normalized_name, user_id);
+        result_text := result_text || 'Added artist unique constraint. ';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint 
+        WHERE conname = 'albums_normalized_name_artist_unique'
+    ) THEN
+        ALTER TABLE public.albums ALTER COLUMN normalized_name SET NOT NULL;
+        ALTER TABLE public.albums ADD CONSTRAINT albums_normalized_name_artist_unique UNIQUE (normalized_name, artist_id, user_id);
+        result_text := result_text || 'Added album unique constraint. ';
+    END IF;
+
+    -- Create indexes
+    CREATE INDEX IF NOT EXISTS idx_artists_normalized ON public.artists(normalized_name);
+    CREATE INDEX IF NOT EXISTS idx_albums_normalized ON public.albums(normalized_name);
+    result_text := result_text || 'Created normalized indexes. ';
+
+    -- Clean up temp tables
+    DROP TABLE IF EXISTS artist_duplicates;
+    DROP TABLE IF EXISTS album_duplicates;
+
+    RETURN result_text || 'Duplicate albums fix completed successfully!';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Note: The fix_duplicate_albums() function will be automatically called after albums enhancement
+-- ============================================================================
