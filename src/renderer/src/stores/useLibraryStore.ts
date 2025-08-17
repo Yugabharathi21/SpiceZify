@@ -4,32 +4,26 @@ import { Track } from './usePlayerStore';
 export interface Album {
   id: number;
   name: string;
-  artist_name?: string;
-  artist_id?: string;
-  description?: string;
+  artist_id?: number;
+  artist_name?: string; // From JOIN
   year?: number;
-  genre?: string;
-  cover_url?: string;
   cover_path?: string;
-  total_tracks?: number;
-  total_duration?: number; // in seconds
-  release_date?: string;
-  record_label?: string;
   created_at?: string;
-  updated_at?: string;
-  user_id?: string;
-  // Computed fields
+  track_count?: number; // From GROUP BY COUNT
+  // Extended fields
   tracks?: Track[];
   is_favorite?: boolean;
   play_count?: number;
   last_played?: string;
 }
 
+// Local SQLite artist interface  
 export interface Artist {
   id: number;
   name: string;
-  album_count?: number;
-  track_count?: number;
+  created_at?: string;
+  album_count?: number; // From GROUP BY COUNT
+  track_count?: number; // From GROUP BY COUNT
 }
 
 export interface Playlist {
@@ -105,9 +99,10 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   loadLibrary: async () => {
     try {
+      // Use local Electron APIs for music data (not Supabase database functions)
       const [tracks, albums, artists, playlists] = await Promise.all([
         window.electronAPI.getTracks(),
-        window.electronAPI.getAlbums(),
+        window.electronAPI.getAlbums(), 
         window.electronAPI.getArtists(),
         window.electronAPI.getAllPlaylists(),
       ]);
@@ -190,9 +185,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   getAlbumTracks: (albumId: number) => {
-    const { tracks } = get();
+    const { tracks, albums } = get();
+    const album = albums.find(a => a.id === albumId);
+    if (!album) return [];
+    
     return tracks.filter(track => 
-      track.album_name === get().albums.find(a => a.id === albumId)?.name
+      track.album_name === album.name
     ).sort((a, b) => {
       // Sort by track number if available
       const trackA = a.track_no || 0;
@@ -203,7 +201,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   toggleAlbumFavorite: async (albumId: number) => {
     try {
-      // TODO: Implement favorite toggle with Supabase
+      // TODO: Implement favorite toggle with local SQLite
       console.log('Toggle album favorite:', albumId);
       
       // For now, just update local state
