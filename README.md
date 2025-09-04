@@ -1,226 +1,187 @@
-# SPiceZify - Electron Music Player
+# Spicezify - Spotify-inspired Music Streaming App
 
-A beautiful, Spotify-inspired music player for local audio files with real-time collaborative features and advanced album management.
+A full-stack MERN application that recreates the Spotify experience using YouTube as the music source. Features include user authentication, playlists, real-time listen-together rooms, and chat functionality.
 
-![SPiceZify Screenshot](docs/screenshot.png)
+## Features
 
-## ✨ Key Features
+### MVP Features ✅
+- **User Authentication**: Complete JWT-based auth system with registration and login
+- **YouTube Song Streaming**: Search and play music from YouTube (API integration pending)
+- **Playlist Management**: Create, edit, and manage personal playlists
+- **Like Songs**: Heart songs and view them in a dedicated liked songs page
 
-- **Advanced Album System**: Complete album management with metadata, covers, and duplicate prevention
-- **Local Music Library**: Scan and organize your music collection with automatic metadata extraction
-- **Spotify-Style UI**: Clean, modern interface with dark theme and smooth animations
-- **Real-time Play Together**: Synchronized listening sessions with friends
-- **Smart Playlists**: Create dynamic playlists based on criteria
-- **Gapless Playback**: Seamless audio transitions between tracks
-- **Search & Discovery**: Fast, fuzzy search across your entire library
-- **Chat Integration**: Real-time chat in listening rooms
-- **Cross-platform**: Works on Windows, macOS, and Linux
+### Secondary Features 🔄
+- **Listen Together**: Real-time synchronized playback rooms with Socket.IO
+- **Chat Feature**: In-room messaging for collaborative listening
+- **Responsive Design**: Mobile and desktop optimized interface
+- **Now Playing Info**: Rich player with song details and controls
+- **Search Songs**: Advanced YouTube search integration
 
-## 🚀 Quick Start
+## Tech Stack
+
+**Frontend:**
+- React 18 with TypeScript
+- TailwindCSS for styling
+- React Router for navigation
+- Context API for state management
+- Heroicons for UI icons
+
+**Backend:**
+- Node.js with Express
+- MongoDB with Mongoose
+- Socket.IO for real-time features
+- JWT authentication
+- RESTful API design
+
+## Getting Started
 
 ### Prerequisites
-
-- Node.js 18+ 
-- npm or yarn
-- Python 3.x (for native dependencies)
+- Node.js (v16 or higher)
+- MongoDB (local or Atlas)
+- YouTube Data API key (for production)
 
 ### Installation
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/Yugabharathi21/SpiceZify.git
-   cd SpiceZify
+   git clone <your-repo-url>
+   cd spicezify
    ```
 
 2. **Install dependencies**
    ```bash
+   # Install frontend dependencies
    npm install
+
+   # Install backend dependencies
+   cd server
+   npm install
+   cd ..
    ```
 
-3. **Set up environment variables**
+3. **Environment Setup**
    ```bash
-   cp .env.example .env
-   # Edit .env with your Supabase credentials
+   # Copy environment file in server directory
+   cp server/.env.example server/.env
+   
+   # Edit the .env file with your configuration:
+   # - MongoDB connection string
+   # - JWT secret key
+   # - YouTube API key (optional for development)
    ```
 
-4. **Set up database** (2 simple steps)
-   - Go to your Supabase dashboard → SQL Editor
-   - Run `database_final.sql` → Run `database_albums_enhancement.sql`
-   - ✅ Automatic duplicate album fix included!
-
-5. **Start development**
+4. **Start the development servers**
    ```bash
+   # Start both frontend and backend
    npm run dev
+   
+   # Or start them separately:
+   # Frontend (port 5173)
+   npm run client
+   
+   # Backend (port 3001)
+   npm run server
    ```
 
-## 📚 Complete Documentation
+5. **Access the application**
+   - Frontend: http://localhost:5173
+   - Backend API: http://localhost:3001
 
-For comprehensive documentation including database setup, album system details, API reference, and troubleshooting, see:
-
-**📖 [DOCUMENTATION.md](./DOCUMENTATION.md)**
-
-This includes:
-- 🚀 **Quick Start Guide** - Get up and running fast
-- 🗄️ **Database Setup** - Automated 2-step process with duplicate fixing
-- 🎨 **Album System** - Complete album management features
-- 🔧 **Duplicate Albums Fix** - Automated prevention and cleanup
-- 🏗️ **Architecture** - Technical details and project structure
-- 🛠️ **Development Guide** - Contributing and development setup
-- 🔌 **API Reference** - Complete API documentation
-- 🚨 **Troubleshooting** - Common issues and solutions
-
-## 🎵 Supported Audio Formats
-
-- **MP3** - MPEG Audio Layer III
-- **FLAC** - Free Lossless Audio Codec  
-- **M4A/MP4** - MPEG-4 Audio
-- **OGG** - Ogg Vorbis
-- **WAV** - Waveform Audio
-- **AAC** - Advanced Audio Coding
-
-## 🏗️ Architecture Overview
+## Project Structure
 
 ```
 spicezify/
-├── src/
-│   ├── main/           # Electron main process (file scanning, database)
-│   ├── preload/        # Preload scripts (secure IPC bridge)
-│   └── renderer/       # React UI (components, pages, stores)
-├── database_final.sql  # Main database schema + duplicate fix
-├── database_albums_enhancement.sql # Album system enhancement
-└── DOCUMENTATION.md    # Complete documentation
+├── src/                      # Frontend React app
+│   ├── components/           # Reusable UI components
+│   ├── contexts/            # React Context providers
+│   ├── pages/               # Page components
+│   └── main.tsx            # App entry point
+├── server/                  # Backend Express app
+│   ├── models/             # Mongoose schemas
+│   ├── routes/             # API route handlers
+│   ├── middleware/         # Express middleware
+│   └── server.js          # Server entry point
+└── public/                 # Static assets
 ```
 
-## 🔧 Key Technologies
+## API Endpoints
 
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Framer Motion
-- **Desktop**: Electron 29+, better-sqlite3, music-metadata
-- **State Management**: Zustand
-- **Real-time**: Socket.IO, Supabase Realtime  
-- **Database**: SQLite (local) + PostgreSQL (cloud via Supabase)
+### Authentication
+- `POST /api/auth/register` - Register new user
+- `POST /api/auth/login` - User login
 
-## ✅ What's New
+### Songs
+- `GET /api/songs/search?query=` - Search YouTube for songs
+- `GET /api/songs/:id` - Get song details
 
-- **🎨 Complete Album System**: Beautiful album pages with metadata and track management
-- **🔧 Automatic Duplicate Fix**: No more duplicate albums - fixed automatically during setup
-- **📚 Unified Documentation**: All guides consolidated into single comprehensive document
-- **🚀 Simplified Setup**: Just 2 database scripts instead of multiple separate files
-- **💾 Enhanced Database**: UUID-based schema with proper relationships and constraints
+### Playlists
+- `GET /api/playlists` - Get user playlists
+- `POST /api/playlists` - Create new playlist
+- `POST /api/playlists/:id/songs` - Add song to playlist
+- `DELETE /api/playlists/:id/songs/:songId` - Remove song from playlist
 
-### Building for Production
+## Socket.IO Events
 
-```bash
-# Build the app
-npm run build:electron
+### Room Management
+- `joinRoom(roomCode)` - Join a listen-together room
+- `leaveRoom(roomCode)` - Leave a room
 
-# Build for specific platform
-npm run build:electron -- --win
-npm run build:electron -- --mac  
-npm run build:electron -- --linux
-```
+### Music Sync
+- `playSong({ roomCode, song, currentTime })` - Sync song playback
+- `pauseSong({ roomCode, currentTime })` - Sync pause
 
-## 🏗️ Architecture
+### Chat
+- `sendMessage({ roomCode, message, username })` - Send chat message
+- `messageReceived` - Receive chat message
 
-```
-spicezify/
-├── src/
-│   ├── main/           # Electron main process
-│   │   ├── index.ts    # App entry point
-│   │   ├── ipc.ts      # IPC handlers
-│   │   ├── db.ts       # SQLite database
-│   │   └── ...
-│   ├── preload/        # Preload scripts
-│   │   └── index.ts    # Context bridge
-│   └── renderer/       # React UI
-│       ├── src/
-│       │   ├── components/
-│       │   ├── pages/
-│       │   ├── stores/  # Zustand state
-│       │   └── ...
-│       └── index.html
-├── server/             # Socket.IO server
-└── docs/               # Documentation
-```
+## Work Tracker
 
-## 🎵 Supported Audio Formats
+The app includes a built-in work tracker accessible at `/work-tracker` that shows:
+- Feature completion status
+- Progress overview
+- Task categorization (MVP, Secondary, Meta)
 
-- **MP3** - MPEG Audio Layer III
-- **FLAC** - Free Lossless Audio Codec
-- **M4A/MP4** - MPEG-4 Audio
-- **OGG** - Ogg Vorbis
-- **WAV** - Waveform Audio
-- **AAC** - Advanced Audio Coding
+## Development Notes
 
-## 🔧 Configuration
+### Mock Data
+- YouTube API integration uses mock data during development
+- Real API integration requires YouTube Data API v3 key
+- Socket.IO rooms are fully functional for testing
 
-### Music Library
+### Authentication
+- Uses JWT tokens stored in localStorage
+- Includes protected routes and middleware
+- Session management handled client-side
 
-1. Launch the app and sign in
-2. Go to Settings → Library → Music Folders
-3. Add your music directories
-4. The app will automatically scan and index your files
+### Styling
+- Spotify's official color palette implemented
+- Dark theme throughout the interface
+- Responsive design for all screen sizes
+- Hover effects and smooth transitions
 
-### Play Together Setup
+## Deployment
 
-1. Create a room or join an existing one
-2. Share the room link with friends
-3. Host controls playback for all participants
-4. Chat in real-time while listening
+### Frontend
+- Build: `npm run build`
+- Deploy to Vercel, Netlify, or similar
 
-## 🛠️ Development
+### Backend
+- Deploy to Heroku, Railway, or similar
+- Set environment variables
+- Ensure MongoDB Atlas connection
 
-### Project Structure
-
-- **Main Process**: Handles file system, database, and native APIs
-- **Renderer Process**: React-based UI with modern components
-- **Preload Scripts**: Secure IPC bridge between main and renderer
-- **Real-time Server**: Socket.IO server for collaborative features
-
-### Key Technologies
-
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Framer Motion
-- **Desktop**: Electron 29+, better-sqlite3, chokidar
-- **Audio**: HTML5 Audio API, music-metadata, Media Session API
-- **State Management**: Zustand
-- **Real-time**: Socket.IO, Supabase Realtime
-- **Authentication**: Supabase Auth
-
-### Database Schema
-
-```sql
--- Local SQLite
-tracks (id, path, title, artist_id, album_id, duration_ms, hash, ...)
-albums (id, name, artist_id, year, cover_path, ...)
-artists (id, name, ...)
-playlists (id, name, user_id, is_smart, ...)
-playlist_items (id, playlist_id, track_id, position)
-
--- Supabase (Cloud)
-profiles (id, display_name, avatar_url, ...)
-user_playlists (id, user_id, name, ...)
-chat_messages (id, room_id, user_id, content, ...)
-```
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Follow the guidelines in [DOCUMENTATION.md](./DOCUMENTATION.md#development-guide)
-4. Submit a Pull Request
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-## 📞 Support
+## License
 
-- 🐛 [Report Bug](https://github.com/Yugabharathi21/SpiceZify/issues)
-- 💡 [Request Feature](https://github.com/Yugabharathi21/SpiceZify/issues)
-- 💬 [Discussions](https://github.com/Yugabharathi21/SpiceZify/discussions)
-- 📖 [Full Documentation](./DOCUMENTATION.md)
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - feel free to use this project for learning and development.
 
 ---
 
-**SPiceZify** - Made with ❤️ for music lovers who want to own their listening experience.
-
-*For detailed setup instructions, API reference, and development guide, see [DOCUMENTATION.md](./DOCUMENTATION.md)*
+**Note**: This project is for educational purposes. Ensure compliance with YouTube's Terms of Service when implementing the API integration.

@@ -4,19 +4,45 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Map Tailwind color names to CSS variables so classes like bg-card work
-        card: 'hsl(var(--card) / <alpha-value>)',
-        'card-foreground': 'hsl(var(--card-foreground) / <alpha-value>)',
-        muted: 'hsl(var(--muted) / <alpha-value>)',
-        'muted-foreground': 'hsl(var(--muted-foreground) / <alpha-value>)',
-        primary: 'hsl(var(--primary) / <alpha-value>)',
-        'primary-foreground': 'hsl(var(--primary-foreground) / <alpha-value>)',
-        foreground: 'hsl(var(--foreground) / <alpha-value>)',
-        border: 'hsl(var(--border) / <alpha-value>)',
-        input: 'hsl(var(--input) / <alpha-value>)',
+        spotify: {
+          green: '#1DB954',
+          'green-light': '#1ED760',
+          'green-dark': '#169C46',
+          black: '#000000',
+          'dark-gray': '#0A0A0A',
+          'medium-gray': '#141414',
+          gray: '#1A1A1A',
+          'light-gray': '#282828',
+          'text-gray': '#B3B3B3',
+          'text-light': '#E5E5E5',
+          white: '#FFFFFF',
+          'accent-blue': '#2563EB',
+          'accent-purple': '#7C3AED',
+          'warning': '#F59E0B',
+          'error': '#EF4444',
+          'border': '#2A2A2A'
+        }
+      },
+      fontFamily: {
+        'spotify': ['Inter', 'system-ui', 'sans-serif']
       },
       borderRadius: {
-        lg: '0.75rem',
+        'none': '0px',
+        'xs': '2px',
+        'sm': '3px',
+        'md': '4px',
+        'lg': '6px',
+        'xl': '8px'
+      },
+      boxShadow: {
+        'minimal': '0 1px 2px 0 rgba(0, 0, 0, 0.3)',
+        'card': '0 2px 4px 0 rgba(0, 0, 0, 0.4)',
+        'elevated': '0 4px 8px 0 rgba(0, 0, 0, 0.5)',
+        'player': '0 -2px 12px rgba(0, 0, 0, 0.6)'
+      },
+      spacing: {
+        '18': '4.5rem',
+        '22': '5.5rem'
       }
     },
   },

@@ -1,3 +1,134 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Modern geometric slider styles */
+@layer components {
+  .slider {
+    @apply appearance-none bg-spotify-border h-1 outline-none;
+    border-radius: 1px;
+  }
+  
+  .slider::-webkit-slider-thumb {
+    @apply appearance-none w-3 h-3 bg-spotify-white cursor-pointer;
+    border-radius: 1px;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+  
+  .slider:hover::-webkit-slider-thumb {
+    @apply bg-spotify-green scale-110;
+  }
+  
+  .slider::-moz-range-thumb {
+    @apply w-3 h-3 bg-spotify-white cursor-pointer border-0;
+    border-radius: 1px;
+    transition: all 0.15s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+  
+  .slider:hover::-moz-range-thumb {
+    @apply bg-spotify-green scale-110;
+  }
+
+  /* Progress slider with geometric design */
+  .progress-slider {
+    @apply appearance-none bg-spotify-border h-1 outline-none;
+    border-radius: 1px;
+  }
+  
+  .progress-slider::-webkit-slider-thumb {
+    @apply appearance-none w-4 h-4 bg-spotify-green cursor-pointer opacity-0;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+    box-shadow: 0 2px 4px rgba(29, 185, 84, 0.3);
+  }
+  
+  .progress-slider:hover::-webkit-slider-thumb {
+    @apply opacity-100 scale-110;
+  }
+
+  /* Custom scrollbar with geometric design */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-spotify-dark-gray;
+    border-radius: 1px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-spotify-gray;
+    border-radius: 1px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-spotify-light-gray;
+  }
+
+  /* Button styles */
+  .btn-primary {
+    @apply bg-spotify-green text-spotify-black font-medium px-6 py-2 transition-all duration-150;
+    border-radius: 3px;
+  }
+  
+  .btn-primary:hover {
+    @apply bg-spotify-green-light scale-105;
+  }
+
+  .btn-secondary {
+    @apply bg-transparent border border-spotify-border text-spotify-text-gray font-medium px-6 py-2 transition-all duration-150;
+    border-radius: 3px;
+  }
+  
+  .btn-secondary:hover {
+    @apply border-spotify-green text-spotify-green;
+  }
+
+  /* Card styles */
+  .card {
+    @apply bg-spotify-medium-gray border border-spotify-border transition-all duration-150;
+    border-radius: 4px;
+  }
+  
+  .card:hover {
+    @apply bg-spotify-gray border-spotify-light-gray;
+  }
+}
+
+/* Global styles */
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #000000;
+  color: #FFFFFF;
+}
+
+/* Focus styles with geometric design */
+button:focus-visible {
+  @apply outline-2 outline-offset-1 outline-spotify-green;
+  border-radius: 2px;
+}
+
+input:focus {
+  @apply outline-none ring-1 ring-spotify-green ring-offset-1 ring-offset-spotify-black;
+  border-radius: 3px;
+}
+
+/* Geometric animations */
+@keyframes pulse-geometric {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+.pulse-geometric {
+  animation: pulse-geometric 2s ease-in-out infinite;
+}
+
+/* Loading skeleton with geometric design */
+.skeleton {
+  @apply bg-spotify-gray animate-pulse;
+  border-radius: 3px;
+}
