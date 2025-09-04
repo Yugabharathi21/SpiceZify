@@ -40,9 +40,7 @@ app.use(express.json());
 mongoose.connect(MONGODB_URI, {
   serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 45000,
-  bufferMaxEntries: 0,
-  maxPoolSize: 10,
-  minPoolSize: 5
+  maxPoolSize: 10
 })
   .then(() => {
     console.log('✅ Connected to MongoDB successfully');
