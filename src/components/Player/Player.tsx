@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   PlayIcon, 
   PauseIcon, 
@@ -10,13 +10,15 @@ import {
   ArrowPathIcon,
   ArrowPathRoundedSquareIcon,
   QueueListIcon,
-  Squares2X2Icon
+  Squares2X2Icon,
+  PlusCircleIcon
 } from '@heroicons/react/24/solid';
 import { HeartIcon, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
 import { usePlayer } from '../../contexts/PlayerContext';
 import FullScreenPlayer from './FullScreenPlayer';
 import QueuePanel from './QueuePanel';
+import ContextMenu from '../UI/ContextMenu';
 
 const Player: React.FC = () => {
   const {
@@ -43,6 +45,51 @@ const Player: React.FC = () => {
   const [isLiked, setIsLiked] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
   const [previousVolume, setPreviousVolume] = useState(volume);
+  const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
+  const [playlists, setPlaylists] = useState<{_id: string, name: string}[]>([]);
+  
+  // Check if song is liked on load
+  useEffect(() => {
+    const checkIfSongIsLiked = async () => {
+      try {
+        if (!currentSong) return;
+        const response = await fetch(`http://localhost:3001/api/liked/${currentSong.id}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        setIsLiked(response.ok);
+      } catch (error) {
+        console.error('Error checking if song is liked:', error);
+      }
+    };
+
+    if (currentSong) {
+      checkIfSongIsLiked();
+    }
+  }, [currentSong]);
+  
+  // Fetch user playlists for the context menu
+  useEffect(() => {
+    const fetchPlaylists = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/playlists', {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setPlaylists(data.map((p: {_id: string, name: string}) => ({ _id: p._id, name: p.name })));
+        }
+      } catch (error) {
+        console.error('Error fetching playlists:', error);
+      }
+    };
+    
+    fetchPlaylists();
+  }, []);
 
   if (!currentSong) {
     return null;
@@ -94,9 +141,85 @@ const Player: React.FC = () => {
 
   const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  // Handle adding song to a playlist
+  const handleAddToPlaylist = async (playlistId: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/playlists/${playlistId}/songs`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          songId: currentSong.id,
+          title: currentSong.title,
+          artist: currentSong.artist,
+          thumbnail: currentSong.thumbnail,
+          duration: currentSong.duration,
+          youtubeId: currentSong.youtubeId
+        })
+      });
+      
+      if (response.ok) {
+        // You can add a toast notification here if you have a toast system
+        console.log('Song added to playlist successfully');
+      } else {
+        const errorData = await response.json();
+        console.error('Error adding song to playlist:', errorData);
+      }
+    } catch (error) {
+      console.error('Error adding song to playlist:', error);
+    }
+  };
+  
+
+
   return (
     <>
       <div className="bg-spotify-dark-gray border-t border-spotify-border px-4 py-3 flex items-center justify-between shadow-player">
+      
+      {/* Context Menu */}
+      <ContextMenu
+        visible={contextMenu.visible}
+        position={contextMenu}
+        onClose={() => setContextMenu({...contextMenu, visible: false})}
+        items={[
+          {
+            label: isLiked ? 'Remove from Liked Songs' : 'Add to Liked Songs',
+            onClick: () => {
+              const newLikedState = !isLiked;
+              setIsLiked(newLikedState);
+              
+              fetch(`http://localhost:3001/api/liked/${currentSong.id}`, {
+                method: newLikedState ? 'POST' : 'DELETE',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                  songId: currentSong.id,
+                  title: currentSong.title,
+                  artist: currentSong.artist,
+                  thumbnail: currentSong.thumbnail,
+                  duration: currentSong.duration,
+                  youtubeId: currentSong.youtubeId
+                })
+              }).catch(err => console.error('Error updating liked status:', err));
+            },
+            icon: isLiked ? <HeartSolid className="w-4 h-4 text-spotify-green" /> : <HeartIcon className="w-4 h-4" />
+          },
+          {
+            label: 'Add to Playlist',
+            onClick: () => {},
+            className: 'border-b border-spotify-border',
+            icon: <PlusCircleIcon className="w-4 h-4" />
+          },
+          ...playlists.map(playlist => ({
+            label: playlist.name,
+            onClick: () => handleAddToPlaylist(playlist._id),
+          }))
+        ]}
+      />
         {/* Song Info */}
         <div className="flex items-center space-x-4 flex-1 min-w-0 max-w-sm">
           <div className="relative group">
@@ -124,7 +247,27 @@ const Player: React.FC = () => {
           
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => setIsLiked(!isLiked)}
+              onClick={() => {
+                const newLikedState = !isLiked;
+                setIsLiked(newLikedState);
+                
+                // Update liked status in backend
+                fetch(`http://localhost:3001/api/liked/${currentSong.id}`, {
+                  method: newLikedState ? 'POST' : 'DELETE',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                  },
+                  body: JSON.stringify({
+                    songId: currentSong.id,
+                    title: currentSong.title,
+                    artist: currentSong.artist,
+                    thumbnail: currentSong.thumbnail,
+                    duration: currentSong.duration,
+                    youtubeId: currentSong.youtubeId
+                  })
+                }).catch(err => console.error('Error updating liked status:', err));
+              }}
               className="text-spotify-text-gray hover:text-spotify-green transition-colors duration-150"
             >
               {isLiked ? (
@@ -134,7 +277,17 @@ const Player: React.FC = () => {
               )}
             </button>
             
-            <button className="text-spotify-text-gray hover:text-spotify-white transition-colors duration-150">
+            <button 
+              className="text-spotify-text-gray hover:text-spotify-white transition-colors duration-150"
+              onClick={(e) => {
+                e.stopPropagation();
+                setContextMenu({
+                  visible: true,
+                  x: e.clientX,
+                  y: e.clientY
+                });
+              }}
+            >
               <EllipsisHorizontalIcon className="w-4 h-4" />
             </button>
           </div>

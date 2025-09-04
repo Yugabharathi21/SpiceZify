@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UsersIcon, ChatBubbleLeftIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { UsersIcon, ChatBubbleLeftIcon } from '@heroicons/react/24/outline';
 import { PlayIcon, PauseIcon, ForwardIcon, BackwardIcon, StarIcon } from '@heroicons/react/24/solid';
 import { useAuth } from '../contexts/AuthContext';
 import { usePlayer } from '../contexts/PlayerContext';
@@ -20,69 +20,81 @@ interface ChatMessage {
   isHost: boolean;
 }
 
+interface Song {
+  id: string;
+  title: string;
+  artist: string;
+  thumbnail: string;
+  duration: number;
+  youtubeId: string;
+}
+
 interface Room {
   code: string;
   name: string;
   hostId: string;
   members: RoomMember[];
-  currentSong?: any;
+  currentSong?: Song;
   isPlaying: boolean;
 }
 
 const ListenTogether: React.FC = () => {
+  const { user } = useAuth();
+  const { currentSong, isPlaying, playSong, pauseSong, resumeSong, nextSong, previousSong } = usePlayer();
+  
   const chatEndRef = React.useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  // Auto-scroll chat to latest message
-  useEffect(() => {
-    if (chatEndRef.current) {
-      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [messages]);
-  // Restore room state on refresh
-  useEffect(() => {
-    const storedRoomCode = localStorage.getItem('roomCode');
-    if (storedRoomCode) {
-      fetchRoomData(storedRoomCode);
-    }
-  }, []);
-
-  const fetchRoomData = async (code: string) => {
-    try {
-      const response = await fetch(`http://localhost:3001/api/rooms/${code}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      if (response.ok) {
-        const roomData = await response.json();
-        setRoom(roomData);
-        setIsInRoom(true);
-        setIsHost(roomData.hostId === user?.id);
-      } else {
-        setIsInRoom(false);
-        setRoom(null);
-      }
-    } catch {
-      setIsInRoom(false);
-      setRoom(null);
-    }
-  };
   const [roomCode, setRoomCode] = useState(() => localStorage.getItem('roomCode') || '');
   const [isInRoom, setIsInRoom] = useState(() => localStorage.getItem('isInRoom') === 'true');
   const [room, setRoom] = useState<Room | null>(null);
-  // Persist roomCode and isInRoom to localStorage
-  useEffect(() => {
-    localStorage.setItem('roomCode', roomCode);
-    localStorage.setItem('isInRoom', isInRoom.toString());
-  }, [roomCode, isInRoom]);
   const [newMessage, setNewMessage] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isHost, setIsHost] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const { user } = useAuth();
-  const { currentSong, isPlaying, playSong, pauseSong, resumeSong, nextSong, previousSong } = usePlayer();
+  // Auto-scroll chat to latest message
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+  
+  // Persist roomCode and isInRoom to localStorage
+  useEffect(() => {
+    localStorage.setItem('roomCode', roomCode);
+    localStorage.setItem('isInRoom', isInRoom.toString());
+  }, [roomCode, isInRoom]);
+  
+  // Restore room state on refresh
+  useEffect(() => {
+    const fetchRoomData = async (code: string) => {
+      try {
+        const response = await fetch(`http://localhost:3001/api/rooms/${code}`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const roomData = await response.json();
+          setRoom(roomData);
+          setIsInRoom(true);
+          setIsHost(roomData.hostId === user?.id);
+        } else {
+          setIsInRoom(false);
+          setRoom(null);
+        }
+      } catch {
+        setIsInRoom(false);
+        setRoom(null);
+      }
+    };
+    
+    const storedRoomCode = localStorage.getItem('roomCode');
+    if (storedRoomCode) {
+      fetchRoomData(storedRoomCode);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
     // Initialize socket connection
@@ -98,7 +110,7 @@ const ListenTogether: React.FC = () => {
       }
     });
 
-    newSocket.on('userJoined', ({ username, memberCount }) => {
+    newSocket.on('userJoined', ({ username }) => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         user: 'System',
@@ -109,7 +121,7 @@ const ListenTogether: React.FC = () => {
       }]);
     });
 
-    newSocket.on('userLeft', ({ username, memberCount }) => {
+    newSocket.on('userLeft', ({ username }) => {
       setMessages(prev => [...prev, {
         id: Date.now().toString(),
         user: 'System',
@@ -131,15 +143,15 @@ const ListenTogether: React.FC = () => {
       }]);
     });
 
-    newSocket.on('syncPlay', ({ song, currentTime }) => {
+    newSocket.on('syncPlay', ({ song }) => {
       playSong(song);
     });
 
-    newSocket.on('syncPause', ({ currentTime }) => {
+    newSocket.on('syncPause', () => {
       pauseSong();
     });
 
-    newSocket.on('syncSeek', ({ currentTime }) => {
+    newSocket.on('syncSeek', () => {
       // Handle seek synchronization
     });
 
@@ -161,7 +173,7 @@ const ListenTogether: React.FC = () => {
     return () => {
       newSocket.disconnect();
     };
-  }, [user?.id]);
+  }, [user?.id, playSong, pauseSong]);
 
   const createRoom = async () => {
     setLoading(true);
@@ -192,7 +204,8 @@ const ListenTogether: React.FC = () => {
       } else {
         setError('Failed to create room');
       }
-    } catch (error) {
+    } catch (err) {
+      console.error('Error creating room:', err);
       setError('Failed to create room');
     }
     
@@ -229,7 +242,8 @@ const ListenTogether: React.FC = () => {
       } else {
         setError('Room not found');
       }
-    } catch (error) {
+    } catch (err) {
+      console.error('Error joining room:', err);
       setError('Failed to join room');
     }
     
@@ -370,7 +384,31 @@ const ListenTogether: React.FC = () => {
             <UsersIcon className="w-6 h-6 text-spotify-black" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-spotify-white">Room: {room?.code}</h1>
+            <div className="flex items-center space-x-2 mb-2">
+              <h1 className="text-2xl font-bold text-spotify-white">Room Code:</h1>
+              <span className="text-xl font-mono bg-spotify-medium-gray px-3 py-1 rounded text-spotify-green">{room?.code}</span>
+              <button
+                className="ml-2 px-2 py-1 bg-spotify-green text-spotify-black rounded text-sm hover:bg-spotify-green-light"
+                onClick={() => {
+                  if (room?.code) {
+                    // Create share link
+                    const shareLink = window.location.origin + '/room/' + room.code;
+                    
+                    // Copy to clipboard
+                    navigator.clipboard.writeText(shareLink)
+                      .then(() => {
+                        // You could add a toast notification here if you have a toast system
+                        alert('Room link copied to clipboard!');
+                      })
+                      .catch(err => {
+                        console.error('Failed to copy link: ', err);
+                      });
+                  }
+                }}
+              >
+                Share
+              </button>
+            </div>
             <p className="text-spotify-text-gray flex items-center space-x-2">
               <span>{room?.members.length} people listening</span>
               {isHost && (
@@ -477,30 +515,49 @@ const ListenTogether: React.FC = () => {
 
         {/* Chat Area */}
         <div className="w-80 card p-6 flex flex-col">
-          <div className="flex items-center space-x-2 mb-4">
-            <ChatBubbleLeftIcon className="w-5 h-5 text-spotify-green" />
-            <h2 className="text-xl font-semibold text-spotify-white">Chat</h2>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+              <ChatBubbleLeftIcon className="w-5 h-5 text-spotify-green" />
+              <h2 className="text-xl font-semibold text-spotify-white">Chat</h2>
+            </div>
+            <div className="bg-spotify-green text-spotify-black text-xs px-2 py-1 rounded-full">
+              {messages.filter(m => m.userId !== 'system').length} messages
+            </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto space-y-3 mb-4 custom-scrollbar" style={{ maxHeight: '400px' }}>
-            {messages.map((msg) => (
-              <div key={msg.id} className={`text-sm flex flex-col ${msg.userId === user?.id ? 'items-end' : 'items-start'}`}>
-                <div className="flex items-center space-x-2 mb-1">
-                  <span className={`font-medium ${msg.userId === 'system' ? 'text-spotify-text-gray' : msg.isHost ? 'text-spotify-green' : 'text-spotify-white'}`}>
-                    {msg.user}
-                  </span>
-                  {msg.isHost && msg.userId !== 'system' && (
-                    <StarIcon className="w-3 h-3 text-spotify-green" />
-                  )}
-                  <span className="text-spotify-text-gray text-xs">
-                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
-                <div className={`inline-block px-3 py-2 rounded-lg ${msg.userId === user?.id ? 'bg-spotify-green text-spotify-black' : 'bg-spotify-medium-gray text-spotify-white'}`} style={{ maxWidth: '80%' }}>
-                  {msg.message}
-                </div>
+          <div className="flex-1 overflow-y-auto space-y-3 mb-4 custom-scrollbar bg-spotify-black bg-opacity-20 p-3 rounded" style={{ maxHeight: '400px', minHeight: '250px' }}>
+            {messages.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-spotify-text-gray text-sm italic">
+                No messages yet. Start the conversation!
               </div>
-            ))}
+            ) : (
+              messages.map((msg) => (
+                <div key={msg.id} className={`text-sm flex flex-col ${msg.userId === user?.id ? 'items-end' : 'items-start'}`}>
+                  <div className="flex items-center space-x-2 mb-1">
+                    {msg.userId !== user?.id && (
+                      <span className={`font-medium ${msg.userId === 'system' ? 'text-spotify-text-gray' : msg.isHost ? 'text-spotify-green' : 'text-spotify-white'}`}>
+                        {msg.user}
+                      </span>
+                    )}
+                    {msg.isHost && msg.userId !== 'system' && (
+                      <StarIcon className="w-3 h-3 text-spotify-green" />
+                    )}
+                    <span className="text-spotify-text-gray text-xs">
+                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  <div className={`inline-block px-3 py-2 rounded-lg ${
+                    msg.userId === 'system' 
+                      ? 'bg-spotify-black bg-opacity-30 text-spotify-text-gray italic' 
+                      : msg.userId === user?.id 
+                        ? 'bg-spotify-green text-spotify-black' 
+                        : 'bg-spotify-medium-gray text-spotify-white'
+                  }`} style={{ maxWidth: '80%' }}>
+                    {msg.message}
+                  </div>
+                </div>
+              ))
+            )}
             <div ref={chatEndRef} />
           </div>
 
@@ -510,7 +567,8 @@ const ListenTogether: React.FC = () => {
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
                   sendMessage();
                 }
               }}
