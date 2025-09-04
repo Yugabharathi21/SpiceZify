@@ -1,4 +1,5 @@
 import express from 'express';
+import { nanoid } from 'nanoid';
 import Room from '../models/Room.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
@@ -20,7 +21,7 @@ router.post('/create', auth, async (req, res) => {
     let code;
     let isUnique = false;
     while (!isUnique) {
-      code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      code = nanoid(6).toUpperCase();
       const existingRoom = await Room.findOne({ code });
       if (!existingRoom) {
         isUnique = true;

@@ -16,7 +16,10 @@ interface PlaylistData {
 const Playlist: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [playlist, setPlaylist] = useState<PlaylistData | null>(null);
+  const [playlist, setPlaylist] = useState<PlaylistData | null>(() => {
+    const cached = id ? localStorage.getItem('playlist_' + id) : null;
+    return cached ? JSON.parse(cached) : null;
+  });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -39,10 +42,11 @@ const Playlist: React.FC = () => {
       });
 
       if (response.ok) {
-        const data = await response.json();
-        setPlaylist(data);
-        setEditName(data.name);
-        setEditDescription(data.description || '');
+  const data = await response.json();
+  setPlaylist(data);
+  setEditName(data.name);
+  setEditDescription(data.description || '');
+  localStorage.setItem('playlist_' + id, JSON.stringify(data));
       } else {
         navigate('/library');
       }

@@ -13,7 +13,10 @@ interface LikedSong {
 }
 
 const LikedSongs: React.FC = () => {
-  const [likedSongs, setLikedSongs] = useState<LikedSong[]>([]);
+  const [likedSongs, setLikedSongs] = useState<LikedSong[]>(() => {
+    const cached = localStorage.getItem('likedSongs');
+    return cached ? JSON.parse(cached) : [];
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,6 +34,7 @@ const LikedSongs: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setLikedSongs(data);
+        localStorage.setItem('likedSongs', JSON.stringify(data));
       }
     } catch (error) {
       console.error('Failed to fetch liked songs:', error);

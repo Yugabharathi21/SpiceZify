@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PlusIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, TrashIcon, PencilIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { MusicalNoteIcon } from '@heroicons/react/24/solid';
 import { Link } from 'react-router-dom';
 
@@ -12,7 +12,10 @@ interface Playlist {
 }
 
 const Library: React.FC = () => {
-  const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
+    const cached = localStorage.getItem('playlists');
+    return cached ? JSON.parse(cached) : [];
+  });
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
@@ -34,6 +37,7 @@ const Library: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setPlaylists(data);
+        localStorage.setItem('playlists', JSON.stringify(data));
       }
     } catch (error) {
       console.error('Failed to fetch playlists:', error);

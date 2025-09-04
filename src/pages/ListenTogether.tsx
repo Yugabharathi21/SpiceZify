@@ -30,10 +30,51 @@ interface Room {
 }
 
 const ListenTogether: React.FC = () => {
-  const [roomCode, setRoomCode] = useState('');
-  const [isInRoom, setIsInRoom] = useState(false);
-  const [room, setRoom] = useState<Room | null>(null);
+  const chatEndRef = React.useRef<HTMLDivElement>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Auto-scroll chat to latest message
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages]);
+  // Restore room state on refresh
+  useEffect(() => {
+    const storedRoomCode = localStorage.getItem('roomCode');
+    if (storedRoomCode) {
+      fetchRoomData(storedRoomCode);
+    }
+  }, []);
+
+  const fetchRoomData = async (code: string) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/rooms/${code}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      if (response.ok) {
+        const roomData = await response.json();
+        setRoom(roomData);
+        setIsInRoom(true);
+        setIsHost(roomData.hostId === user?.id);
+      } else {
+        setIsInRoom(false);
+        setRoom(null);
+      }
+    } catch {
+      setIsInRoom(false);
+      setRoom(null);
+    }
+  };
+  const [roomCode, setRoomCode] = useState(() => localStorage.getItem('roomCode') || '');
+  const [isInRoom, setIsInRoom] = useState(() => localStorage.getItem('isInRoom') === 'true');
+  const [room, setRoom] = useState<Room | null>(null);
+  // Persist roomCode and isInRoom to localStorage
+  useEffect(() => {
+    localStorage.setItem('roomCode', roomCode);
+    localStorage.setItem('isInRoom', isInRoom.toString());
+  }, [roomCode, isInRoom]);
   const [newMessage, setNewMessage] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isHost, setIsHost] = useState(false);
@@ -304,6 +345,19 @@ const ListenTogether: React.FC = () => {
             {loading ? 'Creating...' : 'Create New Room'}
           </button>
         </div>
+
+        {/* Fallback if room data fails to load */}
+        {roomCode && !loading && !room && (
+          <div className="mt-6 text-center text-spotify-error">
+            <p>Could not load room. Please check the code or try again.</p>
+            <button
+              className="mt-2 px-4 py-2 bg-spotify-green text-spotify-black rounded"
+              onClick={() => { setRoomCode(''); localStorage.removeItem('roomCode'); }}
+            >
+              Reset Room Code
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -430,7 +484,7 @@ const ListenTogether: React.FC = () => {
 
           <div className="flex-1 overflow-y-auto space-y-3 mb-4 custom-scrollbar" style={{ maxHeight: '400px' }}>
             {messages.map((msg) => (
-              <div key={msg.id} className="text-sm">
+              <div key={msg.id} className={`text-sm flex flex-col ${msg.userId === user?.id ? 'items-end' : 'items-start'}`}>
                 <div className="flex items-center space-x-2 mb-1">
                   <span className={`font-medium ${msg.userId === 'system' ? 'text-spotify-text-gray' : msg.isHost ? 'text-spotify-green' : 'text-spotify-white'}`}>
                     {msg.user}
@@ -442,9 +496,12 @@ const ListenTogether: React.FC = () => {
                     {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
-                <p className="text-spotify-white">{msg.message}</p>
+                <div className={`inline-block px-3 py-2 rounded-lg ${msg.userId === user?.id ? 'bg-spotify-green text-spotify-black' : 'bg-spotify-medium-gray text-spotify-white'}`} style={{ maxWidth: '80%' }}>
+                  {msg.message}
+                </div>
               </div>
             ))}
+            <div ref={chatEndRef} />
           </div>
 
           <div className="flex space-x-2">
@@ -452,11 +509,16 @@ const ListenTogether: React.FC = () => {
               type="text"
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  sendMessage();
+                }
+              }}
               className="flex-1 px-3 py-2 bg-spotify-medium-gray border border-spotify-border text-spotify-white placeholder-spotify-text-gray focus:outline-none focus:ring-1 focus:ring-spotify-green focus:border-spotify-green text-sm transition-all duration-150"
               style={{ borderRadius: '3px' }}
               placeholder="Type a message..."
               maxLength={500}
+              autoFocus
             />
             <button
               onClick={sendMessage}
