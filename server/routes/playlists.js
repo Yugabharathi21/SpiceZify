@@ -89,6 +89,42 @@ router.delete('/:id', auth, async (req, res) => {
 });
 
 // Add song to playlist
+router.post('/:id/songs', auth, async (req, res) => {
+  try {
+    const songData = req.body;
+    
+    const playlist = await Playlist.findOne({ _id: req.params.id, userId: req.userId });
+    if (!playlist) {
+      return res.status(404).json({ message: 'Playlist not found' });
+    }
+
+    // Check if song already exists in playlist
+    const songExists = playlist.songs.some(existingSong => existingSong.id === songData.songId);
+    if (songExists) {
+      return res.status(400).json({ message: 'Song already in playlist' });
+    }
+
+    playlist.songs.push({
+      id: songData.songId,
+      title: songData.title,
+      artist: songData.artist,
+      thumbnail: songData.thumbnail,
+      duration: songData.duration,
+      youtubeId: songData.youtubeId,
+      channelTitle: songData.channelTitle,
+      isVerified: songData.isVerified || false,
+      addedAt: new Date()
+    });
+
+    await playlist.save();
+    res.json({ message: 'Song added to playlist successfully', playlist });
+  } catch (error) {
+    console.error('Add song to playlist error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Legacy endpoint for backwards compatibility
 router.post('/:id/add', auth, async (req, res) => {
   try {
     const { song } = req.body;
@@ -118,6 +154,31 @@ router.post('/:id/add', auth, async (req, res) => {
 });
 
 // Remove song from playlist
+router.delete('/:id/songs/:songId', auth, async (req, res) => {
+  try {
+    const { id, songId } = req.params;
+
+    const playlist = await Playlist.findOne({ _id: id, userId: req.userId });
+    if (!playlist) {
+      return res.status(404).json({ message: 'Playlist not found' });
+    }
+
+    const originalLength = playlist.songs.length;
+    playlist.songs = playlist.songs.filter(song => song.id !== songId);
+    
+    if (playlist.songs.length === originalLength) {
+      return res.status(404).json({ message: 'Song not found in playlist' });
+    }
+
+    await playlist.save();
+    res.json({ message: 'Song removed from playlist successfully', playlist });
+  } catch (error) {
+    console.error('Remove song from playlist error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Legacy endpoint for backwards compatibility
 router.delete('/:id/remove/:songId', auth, async (req, res) => {
   try {
     const { id, songId } = req.params;
@@ -133,6 +194,92 @@ router.delete('/:id/remove/:songId', auth, async (req, res) => {
     res.json(playlist);
   } catch (error) {
     console.error('Remove song from playlist error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get songs from a specific playlist
+router.get('/:id/songs', auth, async (req, res) => {
+  try {
+    const playlist = await Playlist.findOne({ _id: req.params.id, userId: req.userId });
+    if (!playlist) {
+      return res.status(404).json({ message: 'Playlist not found' });
+    }
+    res.json(playlist.songs);
+  } catch (error) {
+    console.error('Get playlist songs error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Check if a song exists in a playlist
+router.get('/:id/songs/:songId', auth, async (req, res) => {
+  try {
+    const { id, songId } = req.params;
+    
+    const playlist = await Playlist.findOne({ _id: id, userId: req.userId });
+    if (!playlist) {
+      return res.status(404).json({ message: 'Playlist not found' });
+    }
+
+    const songExists = playlist.songs.some(song => song.id === songId);
+    res.json({ exists: songExists });
+  } catch (error) {
+    console.error('Check song in playlist error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Reorder songs in playlist
+router.put('/:id/reorder', auth, async (req, res) => {
+  try {
+    const { songIds } = req.body; // Array of song IDs in new order
+    
+    const playlist = await Playlist.findOne({ _id: req.params.id, userId: req.userId });
+    if (!playlist) {
+      return res.status(404).json({ message: 'Playlist not found' });
+    }
+
+    // Reorder songs based on the provided order
+    const reorderedSongs = songIds.map(songId => 
+      playlist.songs.find(song => song.id === songId)
+    ).filter(Boolean); // Remove any undefined entries
+
+    playlist.songs = reorderedSongs;
+    await playlist.save();
+
+    res.json({ message: 'Playlist reordered successfully', playlist });
+  } catch (error) {
+    console.error('Reorder playlist error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Duplicate playlist
+router.post('/:id/duplicate', auth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    const originalPlaylist = await Playlist.findOne({ _id: req.params.id, userId: req.userId });
+    if (!originalPlaylist) {
+      return res.status(404).json({ message: 'Playlist not found' });
+    }
+
+    const duplicatedPlaylist = new Playlist({
+      name: name || `${originalPlaylist.name} (Copy)`,
+      description: originalPlaylist.description,
+      userId: req.userId,
+      songs: originalPlaylist.songs.map(song => ({
+        ...song.toObject(),
+        addedAt: new Date()
+      })),
+      isPublic: false
+    });
+
+    await duplicatedPlaylist.save();
+    res.status(201).json(duplicatedPlaylist);
+  } catch (error) {
+    console.error('Duplicate playlist error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

@@ -16,6 +16,8 @@ import {
 import { HeartIcon, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
 import { usePlayer } from '../../contexts/PlayerContext';
+import { usePlaylist } from '../../contexts/PlaylistContext';
+import { playlistService } from '../../services/playlistService';
 import FullScreenPlayer from './FullScreenPlayer';
 import QueuePanel from './QueuePanel';
 import ContextMenu from '../UI/ContextMenu';
@@ -48,7 +50,7 @@ const Player: React.FC = () => {
   const [showQueue, setShowQueue] = useState(false);
   const [previousVolume, setPreviousVolume] = useState(volume);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
-  const [playlists, setPlaylists] = useState<{_id: string, name: string}[]>([]);
+  const { playlists, addSongToPlaylist } = usePlaylist();
   
   // Check if song is liked on load
   useEffect(() => {
@@ -70,28 +72,6 @@ const Player: React.FC = () => {
       checkIfSongIsLiked();
     }
   }, [currentSong]);
-  
-  // Fetch user playlists for the context menu
-  useEffect(() => {
-    const fetchPlaylists = async () => {
-      try {
-        const response = await fetch('http://localhost:3001/api/playlists', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setPlaylists(data.map((p: {_id: string, name: string}) => ({ _id: p._id, name: p.name })));
-        }
-      } catch (error) {
-        console.error('Error fetching playlists:', error);
-      }
-    };
-    
-    fetchPlaylists();
-  }, []);
 
   if (!currentSong) {
     return null;
@@ -146,29 +126,13 @@ const Player: React.FC = () => {
   // Handle adding song to a playlist
   const handleAddToPlaylist = async (playlistId: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/playlists/${playlistId}/songs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          songId: currentSong.id,
-          title: currentSong.title,
-          artist: currentSong.artist,
-          thumbnail: currentSong.thumbnail,
-          duration: currentSong.duration,
-          youtubeId: currentSong.youtubeId
-        })
-      });
+      if (!currentSong) return;
       
-      if (response.ok) {
-        // You can add a toast notification here if you have a toast system
-        console.log('Song added to playlist successfully');
-      } else {
-        const errorData = await response.json();
-        console.error('Error adding song to playlist:', errorData);
-      }
+      const songData = playlistService.convertToAddSongData(currentSong);
+      await addSongToPlaylist(playlistId, songData);
+      
+      // You can add a toast notification here if you have a toast system
+      console.log('Song added to playlist successfully');
     } catch (error) {
       console.error('Error adding song to playlist:', error);
     }
