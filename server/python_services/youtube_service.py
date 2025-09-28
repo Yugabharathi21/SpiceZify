@@ -333,87 +333,133 @@ def resolve_audio_url(video_id):
         "socket_timeout": 15,
     }
     try:
+        logger.info(f"🎧 Using yt-dlp to extract audio for: {video_id}")
         with YoutubeDL(ytdl_opts) as ytdl:
             info = ytdl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             
+            if not info:
+                logger.error(f"❌ No video info retrieved for {video_id}")
+                return None
+            
             # Get the best audio format
             formats = info.get("formats", [])
+            logger.info(f"📊 Found {len(formats)} formats for {video_id}")
+            
             if not formats:
-                return info.get("url")
+                url = info.get("url")
+                logger.info(f"🔗 Using direct URL: {url[:100] if url else 'None'}...")
+                return url
             
             # Prefer audio-only formats first
             audio_formats = [f for f in formats if f.get("acodec") != "none" and f.get("vcodec") == "none"]
+            logger.info(f"🎵 Found {len(audio_formats)} audio-only formats")
+            
             if audio_formats:
                 # Get the best quality audio-only format
                 best_audio = max(audio_formats, key=lambda x: x.get("abr", 0) or 0)
-                return best_audio.get("url")
+                url = best_audio.get("url")
+                abr = best_audio.get("abr", 0)
+                ext = best_audio.get("ext", "unknown")
+                logger.info(f"✅ Selected audio format: {ext} @ {abr}kbps")
+                return url
             
             # Fallback to any format with audio
+            logger.info("🔄 Falling back to formats with audio")
             for f in reversed(formats):
                 if f.get("acodec") != "none":
-                    return f.get("url")
+                    url = f.get("url")
+                    logger.info(f"🎧 Using fallback format: {f.get('ext', 'unknown')}")
+                    return url
                     
-            return info.get("url")
+            url = info.get("url")
+            logger.info(f"🔗 Using video info URL as last resort")
+            return url
+            
     except Exception as e:
-        print(f"Error resolving audio URL for {video_id}: {e}")
+        logger.error(f"❌ Error resolving audio URL for {video_id}: {str(e)}")
         return None
 
-# Audio streaming endpoint - proxies YouTube audio
+# Audio streaming endpoint - working version like sample
 @app.route("/api/youtube/audio/<video_id>")
 def audio_proxy(video_id):
+    start_time = time.time()
+    logger.info(f"🎵 Audio request for video: {video_id}")
+    
     try:
         clean_id = extract_video_id(video_id)
         if not clean_id:
+            logger.error(f"❌ Invalid video ID: {video_id}")
             return jsonify({"error": "Invalid video ID"}), 400
             
+        logger.info(f"🔍 Resolving audio URL for: {clean_id}")
         audio_url = resolve_audio_url(clean_id)
+        resolve_time = time.time() - start_time
+        
         if not audio_url:
+            logger.error(f"❌ Could not resolve audio URL for {clean_id} (took {resolve_time:.2f}s)")
             return jsonify({"error": "Could not resolve audio URL"}), 500
+            
+        logger.info(f"✅ Audio URL resolved in {resolve_time:.2f}s: {audio_url[:100]}...")
+        
     except Exception as e:
+        logger.error(f"❌ Error resolving audio for {video_id}: {str(e)}")
         return jsonify({"error": f"Error resolving audio: {str(e)}"}), 500
 
-    # Enhanced proxy with better error handling
+    # Stream the audio with proper headers
     try:
-        # Add headers to mimic a real browser request
+        logger.info(f"🌊 Starting audio stream for {clean_id}")
+        
+        # Enhanced headers for better compatibility
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Accept': 'audio/webm,audio/ogg,audio/wav,audio/*;q=0.9,application/ogg;q=0.7,video/*;q=0.6,*/*;q=0.5',
             'Accept-Language': 'en-US,en;q=0.5',
-            'Range': request.headers.get('Range', '')
         }
         
-        # Remove empty range header
-        if not headers['Range']:
-            del headers['Range']
+        # Handle range requests
+        range_header = request.headers.get('Range')
+        if range_header:
+            headers['Range'] = range_header
             
-        upstream = requests.get(audio_url, stream=True, timeout=20, headers=headers)
+        upstream = requests.get(audio_url, stream=True, timeout=30, headers=headers)
         upstream.raise_for_status()
         
+        logger.info(f"🎧 Upstream response: {upstream.status_code}, Content-Type: {upstream.headers.get('Content-Type', 'unknown')}")
+        
     except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Error fetching upstream audio for {clean_id}: {str(e)}")
         return jsonify({"error": f"Error fetching upstream audio: {str(e)}"}), 502
 
-    # Build response headers
+    # Build response headers for proper audio streaming
     response_headers = {
         "Content-Type": upstream.headers.get("Content-Type", "audio/mpeg"),
         "Accept-Ranges": "bytes",
         "Cache-Control": "public, max-age=3600",
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "Range"
+        "Access-Control-Allow-Headers": "Range, Content-Type",
+        "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS"
     }
     
-    # Handle range requests for better streaming
-    if "Content-Length" in upstream.headers:
-        response_headers["Content-Length"] = upstream.headers["Content-Length"]
-    if "Content-Range" in upstream.headers:
-        response_headers["Content-Range"] = upstream.headers["Content-Range"]
+    # Preserve important headers from upstream
+    for header in ["Content-Length", "Content-Range", "Last-Modified", "ETag"]:
+        if header in upstream.headers:
+            response_headers[header] = upstream.headers[header]
 
     def generate():
         try:
-            for chunk in upstream.iter_content(chunk_size=1024 * 64):
+            logger.info(f"🎵 Streaming audio chunks for {clean_id}")
+            chunk_count = 0
+            for chunk in upstream.iter_content(chunk_size=8192):
                 if chunk:
+                    chunk_count += 1
+                    if chunk_count == 1:
+                        logger.info(f"📦 First audio chunk sent for {clean_id}")
                     yield chunk
+        except Exception as e:
+            logger.error(f"❌ Error during audio streaming for {clean_id}: {str(e)}")
         finally:
             upstream.close()
+            logger.info(f"🏁 Audio stream completed for {clean_id}")
 
     status_code = upstream.status_code if upstream.status_code in [200, 206] else 200
     return Response(stream_with_context(generate()), status=status_code, headers=response_headers)

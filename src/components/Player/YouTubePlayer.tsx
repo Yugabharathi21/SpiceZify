@@ -117,11 +117,16 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
 
   // Control playback state
   useEffect(() => {
-    if (!isPlayerReady || !audioRef.current || hasError || isLoading) return;
+    console.log('Playback control:', { isPlayerReady, hasError, isLoading, isPlaying, videoId });
+    
+    if (!isPlayerReady || !audioRef.current || hasError || isLoading) {
+      console.log('Skipping playback control - not ready');
+      return;
+    }
 
     try {
       if (isPlaying) {
-        console.log('Playing audio:', videoId);
+        console.log('Attempting to play audio:', videoId);
         audioRef.current.play().catch((error) => {
           console.error('Play failed:', error);
           setHasError(true);
@@ -182,7 +187,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     stopTimeUpdates();
   }, [videoId]);
 
-  // Generate stream URL
+  // Generate stream URL - now working properly
   const streamUrl = `http://localhost:3001/api/youtube/audio/${videoId}`;
 
   return (
