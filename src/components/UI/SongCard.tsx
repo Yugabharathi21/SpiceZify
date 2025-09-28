@@ -10,6 +10,8 @@ interface Song {
   thumbnail: string;
   duration: string;
   youtubeId: string;
+  channelTitle?: string;
+  isVerified?: boolean;
 }
 
 interface SongCardProps {
@@ -72,8 +74,13 @@ const SongCard: React.FC<SongCardProps> = ({
             <h3 className={`font-medium text-sm truncate ${isCurrentSong ? 'text-spotify-green' : 'text-spotify-white'}`}>
               {song.title}
             </h3>
-            <p className="text-spotify-text-gray text-xs truncate">
+            <p className="text-spotify-text-gray text-xs truncate flex items-center">
               {song.artist}
+              {song.isVerified && (
+                <svg className="inline w-3 h-3 ml-1 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                </svg>
+              )}
             </p>
           </div>
           
@@ -143,8 +150,13 @@ const SongCard: React.FC<SongCardProps> = ({
           <h3 className={`font-medium text-sm truncate mb-1 ${isCurrentSong ? 'text-spotify-green' : 'text-spotify-white'}`}>
             {song.title}
           </h3>
-          <p className="text-spotify-text-gray text-xs truncate">
+          <p className="text-spotify-text-gray text-xs truncate flex items-center">
             {song.artist}
+            {song.isVerified && (
+              <svg className="inline w-3 h-3 ml-1 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+            )}
           </p>
         </div>
         

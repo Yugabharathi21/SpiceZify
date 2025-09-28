@@ -18,7 +18,35 @@ CORS(app)  # Enable CORS for React frontend
 
 # Simple in-memory cache for faster responses
 search_cache = {}
+related_cache = {}
 CACHE_DURATION = 300  # 5 minutes
+
+# Verified music channels and artists
+VERIFIED_MUSIC_CHANNELS = {
+    # Major Labels
+    'UCmMUZbaYdNH0bEd1PAlAqsA': 'vevo',  # Vevo
+    'UC2pmfLm7iq6Ov1UwYrWYkZA': 'sony',  # Sony Music Entertainment
+    'UCELh-8oY4E5UBgapPGl5cAg': 'warner',  # Warner Records
+    'UCG5fOx8hLLKIWptfcMNOyEw': 'atlantic',  # Atlantic Records
+    'UC0C-w0YjGpqDXGB8IHb662A': 'republic',  # Republic Records
+    'UCT9zcQNlyht7fRlcjmflRSA': 'universal',  # Universal Music Group
+    # Artist Channels (examples - can be expanded)
+    'UCvjSjV2YMLzRE9jnU7BicZw': 'coldplay',
+    'UCtxdfwb9wfkoGocVUAJ-Bmg': 'imaginedragons',
+    'UCe6NHLp0p6oN_oV3ZXhOWAw': 'maroon5',
+}
+
+# Music-related keywords for filtering
+MUSIC_KEYWORDS = [
+    'official', 'music', 'video', 'audio', 'song', 'single', 'album', 'ft.', 'feat.',
+    'remix', 'acoustic', 'live', 'lyric', 'lyrics', 'official video', 'official audio'
+]
+
+# Non-music keywords to filter out
+NON_MUSIC_KEYWORDS = [
+    'reaction', 'review', 'tutorial', 'gameplay', 'vlog', 'unboxing', 'cooking',
+    'news', 'interview', 'podcast', 'compilation', 'mix', 'playlist'
+]
 
 # Helper function to extract clean video ID
 def extract_video_id(video_input):
@@ -104,6 +132,78 @@ def format_duration(seconds):
         minutes = (seconds % 3600) // 60
         secs = seconds % 60
         return f"{hours}:{minutes:02d}:{secs:02d}"
+
+def is_music_content(title, channel_name, duration_seconds=0):
+    """Determine if content is likely music-related"""
+    if not title:
+        return False
+    
+    title_lower = title.lower()
+    channel_lower = channel_name.lower() if channel_name else ""
+    
+    # Check for non-music keywords (immediate disqualification)
+    for keyword in NON_MUSIC_KEYWORDS:
+        if keyword in title_lower:
+            return False
+    
+    # Check for music keywords
+    music_score = 0
+    for keyword in MUSIC_KEYWORDS:
+        if keyword in title_lower:
+            music_score += 2
+        if keyword in channel_lower:
+            music_score += 1
+    
+    # Duration check (music is typically 2-8 minutes)
+    if 120 <= duration_seconds <= 480:  # 2-8 minutes
+        music_score += 3
+    elif duration_seconds > 600:  # More than 10 minutes is less likely to be music
+        music_score -= 2
+    
+    # Channel name patterns
+    if any(label in channel_lower for label in ['vevo', 'records', 'music', 'official']):
+        music_score += 3
+    
+    # Title patterns that suggest music
+    music_patterns = [
+        r'.*-.*',  # Artist - Song format
+        r'.*\(official\)',
+        r'.*\[official\]',
+        r'.*ft\..*',
+        r'.*feat\..*',
+        r'.*remix.*',
+        r'.*acoustic.*'
+    ]
+    
+    for pattern in music_patterns:
+        if re.match(pattern, title_lower):
+            music_score += 2
+            break
+    
+    return music_score >= 4
+
+def is_verified_artist(channel_id, channel_name):
+    """Check if the channel is from a verified music artist or label"""
+    if not channel_id and not channel_name:
+        return False
+    
+    # Check against known verified channels
+    if channel_id and channel_id in VERIFIED_MUSIC_CHANNELS:
+        return True
+    
+    # Check channel name patterns for verification indicators
+    if channel_name:
+        channel_lower = channel_name.lower()
+        verified_indicators = [
+            'vevo', 'records', 'official', 'music', 'entertainment',
+            'sony music', 'warner', 'universal', 'atlantic', 'republic'
+        ]
+        
+        for indicator in verified_indicators:
+            if indicator in channel_lower:
+                return True
+    
+    return False
 
 def parse_title(full_title):
     """Parse YouTube title to extract artist and song name"""
@@ -224,25 +324,48 @@ def search():
             duration_seconds = parse_duration_seconds(meta.get("duration", 0))
             duration_formatted = format_duration(duration_seconds)
             
+            # Get channel info
+            channel_name = meta.get("uploader", "Unknown Channel")
+            channel_id = meta.get("uploader_id", "")
+            
+            # Filter for music content only
+            if not is_music_content(meta.get("title", ""), channel_name, duration_seconds):
+                logger.info(f"⏭️ Skipping non-music content: {title_info.get('title', 'Unknown')}")
+                continue
+            
+            # Check if from verified artist (boost priority)
+            is_verified = is_verified_artist(channel_id, channel_name)
+            
             # Filter out videos that are too long (likely not music)
             if duration_seconds > 900:  # 15 minutes
+                logger.info(f"⏭️ Skipping long video: {duration_formatted}")
                 continue
 
             # Skip embeddable check for faster loading (optional feature)
-            # embeddable = is_embeddable(clean_id)
             embeddable = True  # Assume embeddable for faster response
 
+            # Calculate music quality score for sorting
+            music_score = 0
+            if is_verified:
+                music_score += 10
+            if 120 <= duration_seconds <= 360:  # 2-6 minutes (typical song length)
+                music_score += 5
+            if any(keyword in meta.get("title", "").lower() for keyword in ['official', 'music', 'audio']):
+                music_score += 3
+                
             results.append({
                 "id": clean_id,
                 "title": title_info["title"],
-                "artist": title_info["artist"] or meta.get("uploader", "Unknown Artist"),
+                "artist": title_info["artist"] or channel_name,
                 "thumbnail": thumbnail_url,
                 "duration": duration_formatted,
                 "youtubeId": clean_id,
-                "channelTitle": meta.get("uploader", "Unknown Channel"),
+                "channelTitle": channel_name,
                 "publishedAt": meta.get("upload_date", ""),
                 "view_count": meta.get("view_count", ""),
                 "embeddable": embeddable,
+                "isVerified": is_verified,
+                "musicScore": music_score,
                 "streamUrl": f"/api/youtube/audio/{clean_id}"  # Our streaming endpoint
             })
             
@@ -269,12 +392,19 @@ def search():
             continue
 
     processing_time = time.time() - processing_start
-    total_time = time.time() - start_time
     
+    # Sort results by music score (verified artists and better content first)
+    results.sort(key=lambda x: x.get("musicScore", 0), reverse=True)
+    
+    # Log verification stats
+    verified_count = sum(1 for r in results if r.get("isVerified", False))
+    logger.info(f"🎼 Found {verified_count} verified artist tracks out of {len(results)} total")
+    
+    total_time = time.time() - start_time
     logger.info(f"🎯 Search completed: {len(results)} results in {total_time:.2f}s (processing: {processing_time:.2f}s)")
     
     # Cache the results
-    response_data = {"query": q, "results": results, "count": len(results)}
+    response_data = {"query": q, "results": results, "count": len(results), "verified_count": verified_count}
     search_cache[cache_key] = (response_data, current_time)
     
     # Clean old cache entries (simple cleanup)
@@ -283,6 +413,135 @@ def search():
         del search_cache[oldest_key]
     
     return jsonify(response_data)
+
+# Get related songs for auto-queue functionality
+@app.route("/api/youtube/related/<video_id>")
+def get_related_songs(video_id):
+    try:
+        clean_id = extract_video_id(video_id)
+        if not clean_id:
+            return jsonify({"error": "Invalid video ID"}), 400
+        
+        # Check cache first
+        cache_key = f"related:{clean_id}"
+        current_time = time.time()
+        
+        if cache_key in related_cache:
+            cached_data, cache_time = related_cache[cache_key]
+            if current_time - cache_time < CACHE_DURATION:
+                logger.info(f"🎯 Related cache hit for {clean_id}")
+                return jsonify(cached_data)
+        
+        logger.info(f"🔗 Getting related songs for: {clean_id}")
+        
+        # Get original video details to extract artist
+        v = aiotube.Video(clean_id)
+        meta = v.metadata
+        title_info = parse_title(meta.get("title", ""))
+        artist = title_info["artist"] or meta.get("uploader", "")
+        
+        # Search for related songs by the same artist
+        related_queries = []
+        if artist:
+            related_queries.extend([
+                f"{artist} songs",
+                f"{artist} music",
+                f"{artist} hits"
+            ])
+        
+        # Also search for similar genre terms
+        title_lower = meta.get("title", "").lower()
+        if any(genre in title_lower for genre in ['pop', 'rock', 'hip hop', 'electronic']):
+            for genre in ['pop', 'rock', 'hip hop', 'electronic']:
+                if genre in title_lower:
+                    related_queries.append(f"{genre} music")
+                    break
+        
+        all_related = []
+        for query in related_queries[:2]:  # Limit to 2 queries for performance
+            try:
+                logger.info(f"🔍 Searching related: '{query}'")
+                ids = aiotube.Search.videos(query, limit=8)
+                
+                for vid_id in ids[:5]:  # Get top 5 from each query
+                    try:
+                        clean_related_id = extract_video_id(vid_id)
+                        if clean_related_id == clean_id:  # Skip the original song
+                            continue
+                            
+                        rv = aiotube.Video(clean_related_id)
+                        rmeta = rv.metadata
+                        
+                        duration_seconds = parse_duration_seconds(rmeta.get("duration", 0))
+                        channel_name = rmeta.get("uploader", "Unknown Channel")
+                        
+                        # Only include music content
+                        if not is_music_content(rmeta.get("title", ""), channel_name, duration_seconds):
+                            continue
+                            
+                        if duration_seconds > 600:  # Skip long videos
+                            continue
+                        
+                        rtitle_info = parse_title(rmeta.get("title", ""))
+                        is_verified = is_verified_artist(rmeta.get("uploader_id", ""), channel_name)
+                        
+                        thumbnail_url = rmeta.get("thumbnail") or f"https://img.youtube.com/vi/{clean_related_id}/mqdefault.jpg"
+                        
+                        all_related.append({
+                            "id": clean_related_id,
+                            "title": rtitle_info["title"],
+                            "artist": rtitle_info["artist"] or channel_name,
+                            "thumbnail": thumbnail_url,
+                            "duration": format_duration(duration_seconds),
+                            "youtubeId": clean_related_id,
+                            "channelTitle": channel_name,
+                            "isVerified": is_verified,
+                            "streamUrl": f"/api/youtube/audio/{clean_related_id}"
+                        })
+                        
+                    except Exception as e:
+                        logger.error(f"❌ Error processing related video {vid_id}: {str(e)}")
+                        continue
+                        
+            except Exception as e:
+                logger.error(f"❌ Error searching related for '{query}': {str(e)}")
+                continue
+        
+        # Remove duplicates and sort by verification status
+        seen_ids = set()
+        unique_related = []
+        for song in all_related:
+            if song["id"] not in seen_ids:
+                seen_ids.add(song["id"])
+                unique_related.append(song)
+        
+        # Sort: verified artists first, then by title
+        unique_related.sort(key=lambda x: (not x.get("isVerified", False), x.get("title", "")))
+        
+        # Limit to top 10 related songs
+        final_related = unique_related[:10]
+        
+        logger.info(f"✅ Found {len(final_related)} related songs for {clean_id}")
+        
+        response_data = {
+            "original_id": clean_id,
+            "related": final_related,
+            "count": len(final_related)
+        }
+        
+        # Cache the results
+        related_cache[cache_key] = (response_data, current_time)
+        
+        # Clean old cache entries
+        if len(related_cache) > 100:
+            oldest_key = min(related_cache.keys(), key=lambda k: related_cache[k][1])
+            del related_cache[oldest_key]
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"❌ Error getting related songs for {video_id}: {str(e)}")
+        return jsonify({"error": f"Failed to get related songs: {str(e)}"}), 500
 
 # Get details for a specific video
 @app.route("/api/youtube/video/<video_id>")

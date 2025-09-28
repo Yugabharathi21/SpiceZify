@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import YouTubePlayer from '../components/Player/YouTubePlayer';
+import { queueService, QueueItem, Queue } from '../services/queueService';
 
+// Updated Song interface to match QueueItem
 interface Song {
   id: string;
   title: string;
@@ -8,35 +10,48 @@ interface Song {
   thumbnail: string;
   duration: string;
   youtubeId: string;
+  channelTitle?: string;
+  isVerified?: boolean;
+  streamUrl?: string;
 }
 
 interface PlayerContextType {
-  currentSong: Song | null;
+  // Current playback state
+  currentSong: QueueItem | null;
   isPlaying: boolean;
-  queue: Song[];
   currentTime: number;
   duration: number;
   volume: number;
-  isShuffled: boolean;
-  repeatMode: 'off' | 'all' | 'one';
-  autoplay: boolean;
-  currentIndex: number;
-  playSong: (song: Song, addToQueue?: boolean) => void;
+  
+  // Queue state
+  queue: Queue;
+  upcomingCount: number;
+  hasNext: boolean;
+  hasPrevious: boolean;
+  queueDuration: string;
+  
+  // Control methods
+  playSong: (song: Song, addRelated?: boolean) => Promise<void>;
   pauseSong: () => void;
   resumeSong: () => void;
   nextSong: () => void;
   previousSong: () => void;
-  addToQueue: (song: Song) => void;
+  
+  // Queue management
+  addToQueue: (song: Song, position?: 'next' | 'end') => Promise<void>;
   removeFromQueue: (songId: string) => void;
   clearQueue: () => void;
+  shuffleQueue: () => void;
+  
+  // Settings
   setVolume: (volume: number) => void;
+  setAutoPlay: (enabled: boolean) => void;
+  setRepeatMode: (mode: 'none' | 'one' | 'all') => void;
+  
+  // Playback control
+  seekTo: (time: number) => void;
   setCurrentTime: (time: number) => void;
   setDuration: (duration: number) => void;
-  toggleShuffle: () => void;
-  toggleRepeat: () => void;
-  toggleAutoplay: () => void;
-  seekTo: (time: number) => void;
-  playQueue: (songs: Song[], startIndex?: number) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -54,75 +69,53 @@ interface PlayerProviderProps {
 }
 
 export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
-  const [currentSong, setCurrentSong] = useState<Song | null>(null);
+  // Core playback state
   const [isPlaying, setIsPlaying] = useState(false);
-  const [queue, setQueue] = useState<Song[]>([]);
   const [currentTime, setCurrentTimeState] = useState(0);
   const [duration, setDurationState] = useState(0);
   const [volume, setVolumeState] = useState(0.7);
-  const [isShuffled, setIsShuffled] = useState(false);
-  const [repeatMode, setRepeatModeState] = useState<'off' | 'all' | 'one'>('off');
-  const [autoplay, setAutoplay] = useState(true);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [originalQueue, setOriginalQueue] = useState<Song[]>([]);
   const [seekTime, setSeekTime] = useState<number | undefined>(undefined);
-
-  // Shuffle array function
-  const shuffleArray = (array: Song[]): Song[] => {
-    const shuffled = [...array];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    return shuffled;
-  };
-
-  const playSong = (song: Song, addToQueue: boolean = false) => {
-    if (addToQueue) {
-      setQueue(prev => [...prev, song]);
-      return;
-    }
-
-    setCurrentSong(song);
-    setIsPlaying(true);
-    setCurrentTimeState(0);
-    setSeekTime(0);
-    
-    // If queue is empty, add current song to queue
-    if (queue.length === 0) {
-      setQueue([song]);
-      setCurrentIndex(0);
-      if (!isShuffled) {
-        setOriginalQueue([song]);
+  
+  // Queue state from service
+  const [queue, setQueue] = useState<Queue>(queueService.getQueue());
+  
+  // Subscribe to queue changes
+  useEffect(() => {
+    const unsubscribe = queueService.subscribe((newQueue: Queue) => {
+      setQueue(newQueue);
+      
+      // If a new song is set as current, start playing
+      if (newQueue.current && (!queue.current || newQueue.current.id !== queue.current.id)) {
+        setIsPlaying(true);
+        setCurrentTimeState(0);
+        setSeekTime(0);
       }
-    } else {
-      // Find song in queue or add it
-      const songIndex = queue.findIndex(q => q.id === song.id);
-      if (songIndex !== -1) {
-        setCurrentIndex(songIndex);
-      } else {
-        const newQueue = [...queue, song];
-        setQueue(newQueue);
-        setCurrentIndex(newQueue.length - 1);
-        if (!isShuffled) {
-          setOriginalQueue(newQueue);
-        }
-      }
-    }
-  };
-
-  const playQueue = (songs: Song[], startIndex: number = 0) => {
-    if (songs.length === 0) return;
+    });
     
-    setQueue(songs);
-    setOriginalQueue(songs);
-    setCurrentIndex(startIndex);
-    setCurrentSong(songs[startIndex]);
-    setIsPlaying(true);
-    setCurrentTimeState(0);
-    setSeekTime(0);
+    return unsubscribe;
+  }, [queue.current]);
+
+  // Convert Song to QueueItem
+  const songToQueueItem = (song: Song): QueueItem => ({
+    id: song.id,
+    title: song.title,
+    artist: song.artist,
+    thumbnail: song.thumbnail,
+    duration: song.duration,
+    youtubeId: song.youtubeId,
+    channelTitle: song.channelTitle || 'Unknown Channel',
+    isVerified: song.isVerified || false,
+    streamUrl: song.streamUrl || `http://localhost:3001/api/youtube/audio/${song.youtubeId}`,
+    addedAt: Date.now()
+  });
+
+  // Play a song and optionally add related songs
+  const playSong = async (song: Song, addRelated: boolean = true) => {
+    const queueItem = songToQueueItem(song);
+    await queueService.playSong(queueItem, addRelated);
   };
 
+  // Playback controls
   const pauseSong = () => {
     setIsPlaying(false);
   };
@@ -132,32 +125,16 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
   };
 
   const nextSong = () => {
-    if (queue.length === 0) return;
-
-    let nextIndex = currentIndex + 1;
-    
-    if (nextIndex >= queue.length) {
-      if (repeatMode === 'all') {
-        nextIndex = 0;
-      } else {
-        setIsPlaying(false);
-        return;
-      }
-    }
-
-    setCurrentIndex(nextIndex);
-    setCurrentSong(queue[nextIndex]);
-    setCurrentTimeState(0);
-    setSeekTime(0);
-    
-    if (autoplay) {
-      setIsPlaying(true);
+    const nextSongData = queueService.playNext();
+    if (nextSongData) {
+      setCurrentTimeState(0);
+      setSeekTime(0);
+    } else {
+      setIsPlaying(false);
     }
   };
 
   const previousSong = () => {
-    if (queue.length === 0) return;
-
     // If more than 3 seconds have passed, restart current song
     if (currentTime > 3) {
       setCurrentTimeState(0);
@@ -165,65 +142,46 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
       return;
     }
 
-    let prevIndex = currentIndex - 1;
-    
-    if (prevIndex < 0) {
-      if (repeatMode === 'all') {
-        prevIndex = queue.length - 1;
-      } else {
-        prevIndex = 0;
-      }
-    }
-
-    setCurrentIndex(prevIndex);
-    setCurrentSong(queue[prevIndex]);
-    setCurrentTimeState(0);
-    setSeekTime(0);
-    
-    if (autoplay) {
-      setIsPlaying(true);
+    const prevSongData = queueService.playPrevious();
+    if (prevSongData) {
+      setCurrentTimeState(0);
+      setSeekTime(0);
     }
   };
 
-  const addToQueue = (song: Song) => {
-    setQueue(prev => {
-      const newQueue = [...prev, song];
-      if (!isShuffled) {
-        setOriginalQueue(newQueue);
-      }
-      return newQueue;
-    });
+  // Queue management
+  const addToQueue = async (song: Song, position: 'next' | 'end' = 'end') => {
+    const queueItem = songToQueueItem(song);
+    await queueService.addToQueue(queueItem, position);
   };
 
   const removeFromQueue = (songId: string) => {
-    setQueue(prev => {
-      const newQueue = prev.filter(song => song.id !== songId);
-      const removedIndex = prev.findIndex(song => song.id === songId);
-      
-      if (removedIndex !== -1 && removedIndex <= currentIndex && currentIndex > 0) {
-        setCurrentIndex(currentIndex - 1);
-      }
-      
-      if (!isShuffled) {
-        setOriginalQueue(newQueue);
-      }
-      
-      return newQueue;
-    });
+    queueService.removeSong(songId);
   };
 
   const clearQueue = () => {
-    setQueue([]);
-    setOriginalQueue([]);
-    setCurrentIndex(0);
-    setCurrentSong(null);
+    queueService.clearQueue();
     setIsPlaying(false);
   };
 
+  const shuffleQueue = () => {
+    queueService.shuffleQueue();
+  };
+
+  // Settings
   const setVolume = (newVolume: number) => {
     setVolumeState(Math.max(0, Math.min(1, newVolume)));
   };
 
+  const setAutoPlay = (enabled: boolean) => {
+    queueService.setAutoPlay(enabled);
+  };
+
+  const setRepeatMode = (mode: 'none' | 'one' | 'all') => {
+    queueService.setRepeatMode(mode);
+  };
+
+  // Playback control
   const setCurrentTime = (time: number) => {
     const newTime = Math.max(0, Math.min(duration, time));
     setCurrentTimeState(newTime);
@@ -234,54 +192,17 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     setDurationState(newDuration);
   };
 
-  const toggleShuffle = () => {
-    const newShuffled = !isShuffled;
-    setIsShuffled(newShuffled);
-
-    if (newShuffled) {
-      // Save original queue and shuffle
-      if (originalQueue.length === 0) {
-        setOriginalQueue(queue);
-      }
-      const shuffledQueue = shuffleArray(queue);
-      setQueue(shuffledQueue);
-      
-      // Find current song in shuffled queue
-      const newIndex = shuffledQueue.findIndex(song => song.id === currentSong?.id);
-      setCurrentIndex(newIndex !== -1 ? newIndex : 0);
-    } else {
-      // Restore original queue
-      setQueue(originalQueue);
-      const originalIndex = originalQueue.findIndex(song => song.id === currentSong?.id);
-      setCurrentIndex(originalIndex !== -1 ? originalIndex : 0);
-    }
-  };
-
-  const toggleRepeat = () => {
-    if (repeatMode === 'off') {
-      setRepeatModeState('all');
-    } else if (repeatMode === 'all') {
-      setRepeatModeState('one');
-    } else {
-      setRepeatModeState('off');
-    }
-  };
-
-  const toggleAutoplay = () => {
-    setAutoplay(!autoplay);
-  };
-
   const seekTo = (time: number) => {
     setCurrentTime(time);
   };
 
-  // Handle song end
+  // Handle song end - auto-play next song
   const handleSongEnd = () => {
-    if (repeatMode === 'one') {
+    if (queue.repeatMode === 'one') {
       setCurrentTimeState(0);
       setSeekTime(0);
       setIsPlaying(true);
-    } else if (autoplay && queue.length > 1) {
+    } else if (queueService.hasNext()) {
       nextSong();
     } else {
       setIsPlaying(false);
@@ -293,44 +214,53 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     setCurrentTimeState(time);
   };
 
-  const value = {
-    currentSong,
+  const value: PlayerContextType = {
+    // Current playback state
+    currentSong: queue.current,
     isPlaying,
-    queue,
     currentTime,
     duration,
     volume,
-    isShuffled,
-    repeatMode,
-    autoplay,
-    currentIndex,
+    
+    // Queue state
+    queue,
+    upcomingCount: queueService.getUpcomingCount(),
+    hasNext: queueService.hasNext(),
+    hasPrevious: queueService.hasPrevious(),
+    queueDuration: queueService.getQueueDuration(),
+    
+    // Control methods
     playSong,
     pauseSong,
     resumeSong,
     nextSong,
     previousSong,
+    
+    // Queue management
     addToQueue,
     removeFromQueue,
     clearQueue,
+    shuffleQueue,
+    
+    // Settings
     setVolume,
-    setCurrentTime,
-    setDuration,
-    toggleShuffle,
-    toggleRepeat,
-    toggleAutoplay,
+    setAutoPlay,
+    setRepeatMode,
+    
+    // Playback control
     seekTo,
-    playQueue
+    setCurrentTime,
+    setDuration
   };
 
   return (
     <PlayerContext.Provider value={value}>
       {children}
-      {currentSong && (
+      {queue.current && (
         <YouTubePlayer
-          videoId={currentSong.youtubeId}
+          videoId={queue.current.youtubeId}
           isPlaying={isPlaying}
           volume={volume}
-          currentTime={currentTime}
           onReady={() => console.log('YouTube player ready')}
           onStateChange={(state) => console.log('YouTube player state:', state)}
           onTimeUpdate={handleTimeUpdate}

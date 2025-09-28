@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { PlayerProvider } from './contexts/PlayerContext';
+import { PlaylistProvider } from './contexts/PlaylistContext';
 import Layout from './components/Layout/Layout';
 import Home from './pages/Home';
 import Search from './pages/Search';
@@ -16,8 +17,9 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 function App() {
   return (
     <AuthProvider>
-      <PlayerProvider>
-        <Router>
+      <PlaylistProvider>
+        <PlayerProvider>
+          <Router>
           <div className="h-screen bg-spotify-black text-spotify-white overflow-hidden">
             <Routes>
               <Route path="/login" element={<Login />} />
@@ -36,8 +38,9 @@ function App() {
               </Route>
             </Routes>
           </div>
-        </Router>
-      </PlayerProvider>
+          </Router>
+        </PlayerProvider>
+      </PlaylistProvider>
     </AuthProvider>
   );
 }

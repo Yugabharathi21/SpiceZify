@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema({
     thumbnail: String,
     duration: String,
     youtubeId: String,
+    channelTitle: String,
+    isVerified: {
+      type: Boolean,
+      default: false
+    },
     addedAt: {
       type: Date,
       default: Date.now

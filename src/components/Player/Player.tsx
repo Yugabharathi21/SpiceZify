@@ -16,6 +16,8 @@ import {
 import { HeartIcon, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
 import { usePlayer } from '../../contexts/PlayerContext';
+import { usePlaylist } from '../../contexts/PlaylistContext';
+import { playlistService } from '../../services/playlistService';
 import FullScreenPlayer from './FullScreenPlayer';
 import QueuePanel from './QueuePanel';
 import ContextMenu from '../UI/ContextMenu';
@@ -38,7 +40,9 @@ const Player: React.FC = () => {
     repeatMode,
     toggleRepeat,
     autoplay,
-    toggleAutoplay
+    toggleAutoplay,
+    queue,
+    upcomingCount
   } = usePlayer();
 
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -46,7 +50,7 @@ const Player: React.FC = () => {
   const [showQueue, setShowQueue] = useState(false);
   const [previousVolume, setPreviousVolume] = useState(volume);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
-  const [playlists, setPlaylists] = useState<{_id: string, name: string}[]>([]);
+  const { playlists, addSongToPlaylist } = usePlaylist();
   
   // Check if song is liked on load
   useEffect(() => {
@@ -68,28 +72,6 @@ const Player: React.FC = () => {
       checkIfSongIsLiked();
     }
   }, [currentSong]);
-  
-  // Fetch user playlists for the context menu
-  useEffect(() => {
-    const fetchPlaylists = async () => {
-      try {
-        const response = await fetch('http://localhost:3001/api/playlists', {
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
-          }
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setPlaylists(data.map((p: {_id: string, name: string}) => ({ _id: p._id, name: p.name })));
-        }
-      } catch (error) {
-        console.error('Error fetching playlists:', error);
-      }
-    };
-    
-    fetchPlaylists();
-  }, []);
 
   if (!currentSong) {
     return null;
@@ -144,29 +126,13 @@ const Player: React.FC = () => {
   // Handle adding song to a playlist
   const handleAddToPlaylist = async (playlistId: string) => {
     try {
-      const response = await fetch(`http://localhost:3001/api/playlists/${playlistId}/songs`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          songId: currentSong.id,
-          title: currentSong.title,
-          artist: currentSong.artist,
-          thumbnail: currentSong.thumbnail,
-          duration: currentSong.duration,
-          youtubeId: currentSong.youtubeId
-        })
-      });
+      if (!currentSong) return;
       
-      if (response.ok) {
-        // You can add a toast notification here if you have a toast system
-        console.log('Song added to playlist successfully');
-      } else {
-        const errorData = await response.json();
-        console.error('Error adding song to playlist:', errorData);
-      }
+      const songData = playlistService.convertToAddSongData(currentSong);
+      await addSongToPlaylist(playlistId, songData);
+      
+      // You can add a toast notification here if you have a toast system
+      console.log('Song added to playlist successfully');
     } catch (error) {
       console.error('Error adding song to playlist:', error);
     }
@@ -372,6 +338,21 @@ const Player: React.FC = () => {
               {formatTime(duration)}
             </span>
           </div>
+          
+          {/* Next Song Preview */}
+          {queue.upcoming.length > 0 && (
+            <div className="flex items-center text-xs text-gray-500 max-w-md">
+              <span className="mr-2">Up next:</span>
+              <span className="truncate">
+                {queue.upcoming[0].title} • {queue.upcoming[0].artist}
+                {queue.upcoming[0].isVerified && (
+                  <svg className="inline w-2.5 h-2.5 ml-1 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Right Controls */}
@@ -386,13 +367,20 @@ const Player: React.FC = () => {
             </svg>
           </button>
           
-          <button
-            onClick={() => setShowQueue(!showQueue)}
-            className={`transition-colors duration-150 ${showQueue ? 'text-spotify-green' : 'text-spotify-text-gray hover:text-spotify-white'}`}
-            title="Queue"
-          >
-            <QueueListIcon className="w-4 h-4" />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowQueue(!showQueue)}
+              className={`transition-colors duration-150 ${showQueue ? 'text-spotify-green' : 'text-spotify-text-gray hover:text-spotify-white'}`}
+              title={`Queue (${upcomingCount} songs)`}
+            >
+              <QueueListIcon className="w-4 h-4" />
+            </button>
+            {upcomingCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-green-600 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
+                {upcomingCount > 9 ? '9+' : upcomingCount}
+              </span>
+            )}
+          </div>
           
           <div className="flex items-center space-x-2">
             <button
