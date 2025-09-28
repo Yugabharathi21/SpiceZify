@@ -5,6 +5,7 @@ import { Server } from 'socket.io';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import ytdl from 'ytdl-core';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import authRoutes from './routes/auth.js';
 import songRoutes from './routes/songs.js';
 import playlistRoutes from './routes/playlists.js';
@@ -62,6 +63,24 @@ app.use('/api/songs', songRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api', likeRoutes);
+
+// Proxy YouTube requests to Python service
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';
+
+app.use('/api/youtube', createProxyMiddleware({
+  target: PYTHON_SERVICE_URL,
+  changeOrigin: true,
+  onError: (err, req, res) => {
+    console.error('YouTube service proxy error:', err.message);
+    res.status(503).json({ 
+      error: 'YouTube service unavailable',
+      details: 'Please ensure the Python YouTube service is running on port 5001'
+    });
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`📡 Proxying YouTube request: ${req.method} ${req.url}`);
+  }
+}));
 
 // YouTube stream endpoint
 app.get('/api/stream/:videoId', async (req, res) => {

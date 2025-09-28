@@ -4,12 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "dev": "concurrently \"npm run server\" \"npm run client\" \"npm run python\" ",
     "client": "vite",
     "server": "cd server && npm run dev",
+    "python": "cd server/python_services && D:/SpiceZify/.venv/Scripts/python.exe youtube_service.py",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "py-deps": "cd server/python_services && D:/SpiceZify/.venv/Scripts/python.exe -m pip install -r requirements.txt"
   },
   "dependencies": {
     "@heroicons/react": "^2.0.18",

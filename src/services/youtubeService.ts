@@ -1,5 +1,5 @@
-const YOUTUBE_API_KEY = import.meta.env.VITE_YOUTUBE_API_KEY || 'AIzaSyD6WBFi39Z2y7EYUHTLVPiPpJMelzyDeU0';
-const YOUTUBE_API_BASE_URL = 'https://www.googleapis.com/youtube/v3';
+// Using Python backend service instead of direct YouTube API
+const YOUTUBE_SERVICE_BASE_URL = 'http://localhost:3001/api/youtube';
 
 export interface YouTubeVideo {
   id: string;
@@ -13,101 +13,113 @@ export interface YouTubeVideo {
   streamUrl?: string;
 }
 
+interface YouTubeSearchResult {
+  id: string;
+  title: string;
+  artist: string;
+  thumbnail: string;
+  duration: string;
+  youtubeId: string;
+  channelTitle: string;
+  publishedAt: string;
+  streamUrl: string;
+}
+
 export class YouTubeService {
   static async searchSongs(query: string, maxResults: number = 20): Promise<YouTubeVideo[]> {
+    const startTime = performance.now();
+    console.log(`🔍 [Frontend] Starting search for: "${query}" (maxResults: ${maxResults})`);
+    
     try {
-      const searchUrl = `${YOUTUBE_API_BASE_URL}/search?part=snippet&type=video&videoCategoryId=10&q=${encodeURIComponent(query + ' music')}&maxResults=${maxResults}&key=${YOUTUBE_API_KEY}`;
+      const searchUrl = `${YOUTUBE_SERVICE_BASE_URL}/search?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
+      
+      console.log(`📡 [Frontend] Fetching: ${searchUrl}`);
+      const fetchStart = performance.now();
       
       const response = await fetch(searchUrl);
+      
+      const fetchTime = performance.now() - fetchStart;
+      console.log(`⏱️ [Frontend] Fetch completed in ${fetchTime.toFixed(2)}ms, status: ${response.status}`);
+      
       if (!response.ok) {
-        console.warn('YouTube API error, using fallback data');
+        console.warn('YouTube service error, using fallback data');
+        if (response.status === 503) {
+          console.error('Python YouTube service is not running. Start it with: python server/youtube_service.py');
+        }
         return this.getMockResults(query, maxResults);
       }
       
       const data = await response.json();
       
-      if (!data.items || data.items.length === 0) {
+      if (data.error) {
+        console.error('YouTube service error:', data.error);
+        return this.getMockResults(query, maxResults);
+      }
+      
+      if (!data.results || data.results.length === 0) {
         return this.getMockResults(query, maxResults);
       }
 
-      // Get video details including duration
-      const videoIds = data.items.map((item: any) => item.id.videoId).join(',');
-      const detailsUrl = `${YOUTUBE_API_BASE_URL}/videos?part=contentDetails,snippet&id=${videoIds}&key=${YOUTUBE_API_KEY}`;
+      const results = data.results.map((item: YouTubeSearchResult) => ({
+        id: item.id,
+        title: item.title,
+        artist: item.artist,
+        thumbnail: item.thumbnail,
+        duration: item.duration,
+        youtubeId: item.youtubeId,
+        channelTitle: item.channelTitle,
+        publishedAt: item.publishedAt,
+        streamUrl: `${YOUTUBE_SERVICE_BASE_URL}/audio/${item.youtubeId}`
+      }));
       
-      const detailsResponse = await fetch(detailsUrl);
-      const detailsData = await detailsResponse.json();
-
-      return data.items.map((item: any, index: number) => {
-        const details = detailsData.items?.[index];
-        const duration = details ? this.parseDuration(details.contentDetails.duration) : '0:00';
-        
-        // Clean up title to extract artist and song name
-        const { title, artist } = this.parseTitle(item.snippet.title);
-        
-        return {
-          id: item.id.videoId,
-          title,
-          artist: artist || item.snippet.channelTitle,
-          thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.high?.url || item.snippet.thumbnails.default?.url || '',
-          duration,
-          youtubeId: item.id.videoId,
-          channelTitle: item.snippet.channelTitle,
-          publishedAt: item.snippet.publishedAt
-        };
-      }).filter(song => {
-        // Filter out videos that are too long (likely not music)
-        const durationParts = song.duration.split(':');
-        const totalMinutes = durationParts.length === 3 
-          ? parseInt(durationParts[0]) * 60 + parseInt(durationParts[1])
-          : parseInt(durationParts[0]);
-        return totalMinutes <= 15; // Max 15 minutes
-      });
+      const totalTime = performance.now() - startTime;
+      console.log(`✅ [Frontend] Search completed: ${results.length} results in ${totalTime.toFixed(2)}ms`);
+      
+      return results;
     } catch (error) {
-      console.error('YouTube search error:', error);
+      const totalTime = performance.now() - startTime;
+      console.error(`❌ [Frontend] Search failed in ${totalTime.toFixed(2)}ms:`, error);
+      console.error('Make sure the Python YouTube service is running on port 5001');
       return this.getMockResults(query, maxResults);
     }
   }
 
   static async getStreamUrl(videoId: string): Promise<string | null> {
     try {
-      const response = await fetch(`http://localhost:3001/api/stream/${videoId}`);
-      if (response.ok) {
-        const data = await response.json();
-        return data.streamUrl;
-      }
+      // Return direct stream URL from our Python service
+      return `${YOUTUBE_SERVICE_BASE_URL}/audio/${videoId}`;
     } catch (error) {
       console.error('Failed to get stream URL:', error);
+      return null;
     }
-    return null;
   }
 
   static async getVideoDetails(videoId: string): Promise<YouTubeVideo | null> {
     try {
-      const url = `${YOUTUBE_API_BASE_URL}/videos?part=snippet,contentDetails&id=${videoId}&key=${YOUTUBE_API_KEY}`;
+      const url = `${YOUTUBE_SERVICE_BASE_URL}/video/${videoId}`;
       
       const response = await fetch(url);
       if (!response.ok) {
-        throw new Error(`YouTube API error: ${response.status}`);
+        throw new Error(`YouTube service error: ${response.status}`);
       }
       
       const data = await response.json();
       
-      if (!data.items || data.items.length === 0) {
+      if (data.error) {
+        console.error('YouTube service error:', data.error);
         return null;
       }
 
-      const item = data.items[0];
-      const { title, artist } = this.parseTitle(item.snippet.title);
-      
       return {
-        id: item.id,
-        title,
-        artist: artist || item.snippet.channelTitle,
-        thumbnail: item.snippet.thumbnails.medium?.url || item.snippet.thumbnails.high?.url || '',
-        duration: this.parseDuration(item.contentDetails.duration),
-        youtubeId: item.id,
-        channelTitle: item.snippet.channelTitle,
-        publishedAt: item.snippet.publishedAt
+        id: data.id,
+        title: data.title,
+        artist: data.artist,
+        thumbnail: data.thumbnail,
+        duration: data.duration,
+        youtubeId: data.youtubeId,
+        channelTitle: data.channelTitle,
+        publishedAt: data.publishedAt,
+        streamUrl: data.streamUrl
       };
     } catch (error) {
       console.error('YouTube video details error:', error);
@@ -129,63 +141,7 @@ export class YouTubeService {
     return this.searchSongs(`${randomGenre} 2024`, 15);
   }
 
-  private static parseTitle(fullTitle: string): { title: string; artist: string } {
-    // Remove common YouTube suffixes
-    let cleanTitle = fullTitle
-      .replace(/\s*\(Official.*?\)/gi, '')
-      .replace(/\s*\[Official.*?\]/gi, '')
-      .replace(/\s*- Official.*$/gi, '')
-      .replace(/\s*\| Official.*$/gi, '')
-      .replace(/\s*HD$/gi, '')
-      .replace(/\s*4K$/gi, '')
-      .trim();
-
-    // Common patterns in YouTube music titles
-    const patterns = [
-      /^(.+?)\s*-\s*(.+?)$/,  // Artist - Song
-      /^(.+?)\s*by\s*(.+?)$/i, // Song by Artist
-      /^(.+?)\s*\|\s*(.+?)$/,  // Artist | Song
-      /^(.+?)\s*:\s*(.+?)$/,   // Artist: Song
-    ];
-
-    for (const pattern of patterns) {
-      const match = cleanTitle.match(pattern);
-      if (match) {
-        const part1 = match[1].trim();
-        const part2 = match[2].trim();
-        
-        // Heuristic: if first part looks like an artist name (shorter, common patterns)
-        if (part1.length < part2.length && !part1.includes('feat') && !part1.includes('ft.')) {
-          return { artist: part1, title: part2 };
-        } else {
-          return { artist: part2, title: part1 };
-        }
-      }
-    }
-
-    // Fallback: use full title as song name
-    return {
-      title: cleanTitle,
-      artist: ''
-    };
-  }
-
-  private static parseDuration(duration: string): string {
-    // Parse ISO 8601 duration format (PT4M13S) to MM:SS
-    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-    if (!match) return '0:00';
-
-    const hours = parseInt(match[1] || '0');
-    const minutes = parseInt(match[2] || '0');
-    const seconds = parseInt(match[3] || '0');
-
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
-  }
-
-  private static getMockResults(query: string, maxResults: number = 20): YouTubeVideo[] {
+  private static getMockResults(_query: string, maxResults: number = 20): YouTubeVideo[] {
     const mockSongs = [
       {
         id: `mock-1-${Date.now()}`,
