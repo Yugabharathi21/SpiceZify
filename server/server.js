@@ -314,7 +314,8 @@ io.on('connection', (socket) => {
         message: message.trim(),
         timestamp: newMessage.timestamp,
         userId,
-        isHost: room.hostId.toString() === userId
+        isHost: room.hostId.toString() === userId,
+        type: 'message'
       });
       
       console.log(`💬 Message in room ${roomCode} from ${user.username}: ${message.trim()}`);
@@ -322,6 +323,15 @@ io.on('connection', (socket) => {
       console.error('Send message error:', error);
       socket.emit('error', { message: 'Failed to send message' });
     }
+  });
+
+  // Typing indicators
+  socket.on('userTyping', ({ roomCode, userId, username, isTyping }) => {
+    socket.to(roomCode).emit('userTyping', {
+      userId,
+      username,
+      isTyping
+    });
   });
 
   // Handle disconnect
