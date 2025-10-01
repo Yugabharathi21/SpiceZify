@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MusicalNoteIcon, PlayIcon, TrashIcon } from '@heroicons/react/24/solid';
 import { PencilIcon } from '@heroicons/react/24/outline';
 import SongCard from '../components/UI/SongCard';
-import { usePlayer } from '../contexts/PlayerContext';
+import { usePlayer } from '../hooks/usePlayer';
 
 interface PlaylistData {
   _id: string;
@@ -106,7 +106,7 @@ const Playlist: React.FC = () => {
 
   const playPlaylist = () => {
     if (playlist && playlist.songs.length > 0) {
-      playQueue(playlist.songs, 0);
+      playQueue?.(playlist.songs, 0);
     }
   };
 

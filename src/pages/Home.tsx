@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SongCard from '../components/UI/SongCard';
+import Recommendations from '../components/Recommendations/Recommendations';
 import { YouTubeService, YouTubeVideo } from '../services/youtubeService';
 
 const Home: React.FC = () => {
@@ -113,6 +114,19 @@ const Home: React.FC = () => {
             <SongCard key={song.id} song={song} />
           ))}
         </div>
+      </div>
+
+      {/* AI Recommendations */}
+      <div className="mb-8">
+        <Recommendations 
+          options={{ 
+            limit: 15, 
+            verifiedOnly: true,
+            exploration: true,
+            diversification: true 
+          }}
+          className="bg-gray-900/50 rounded-lg p-6"
+        />
       </div>
 
       {/* Made for You */}

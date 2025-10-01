@@ -31,7 +31,7 @@ class AudioCache {
     
     const audio = new Audio();
     audio.preload = 'auto';
-    audio.src = `http://localhost:3001/api/youtube/audio/${videoId}`;
+    audio.src = `http://localhost:5001/api/youtube/audio/${videoId}`;
     audio.crossOrigin = 'anonymous';
     
     // Clean up old entries if cache is full
@@ -333,9 +333,9 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   const streamUrl = useMemo(() => {
     if (enablePreloading && AudioCache.isLoaded(videoId)) {
       console.log(`🎯 Using cached audio for ${videoId}`);
-      return AudioCache.get(videoId)?.src || `http://localhost:3001/api/youtube/audio/${videoId}`;
+      return AudioCache.get(videoId)?.src || `http://localhost:5001/api/youtube/audio/${videoId}`;
     }
-    return `http://localhost:3001/api/youtube/audio/${videoId}`;
+    return `http://localhost:5001/api/youtube/audio/${videoId}`;
   }, [videoId, enablePreloading]);
 
   return (

@@ -1,7 +1,7 @@
 import React from 'react';
 import { PlayIcon, HeartIcon, PlusIcon } from '@heroicons/react/24/solid';
 import { HeartIcon as HeartOutline, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
-import { usePlayer } from '../../contexts/PlayerContext';
+import { usePlayer } from '../../hooks/usePlayer';
 
 interface Song {
   id: string;

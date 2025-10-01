@@ -11,6 +11,7 @@ import songRoutes from './routes/songs.js';
 import playlistRoutes from './routes/playlists.js';
 import roomRoutes from './routes/rooms.js';
 import likeRoutes from './routes/likes.js';
+import recommendationRoutes from './routes/recommendations.js';
 import Room from './models/Room.js';
 import Message from './models/Message.js';
 import User from './models/User.js';
@@ -63,6 +64,7 @@ app.use('/api/songs', songRoutes);
 app.use('/api/playlists', playlistRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api', likeRoutes);
+app.use('/api/recommendations', recommendationRoutes);
 
 // Proxy YouTube requests to Python service
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:5001';

@@ -1,11 +1,11 @@
 // Using Python backend service instead of direct YouTube API
-const YOUTUBE_SERVICE_BASE_URL = 'http://localhost:3001/api/youtube';
+const YOUTUBE_SERVICE_BASE_URL = 'http://localhost:5001/api/youtube';
 
 // Performance optimization constants
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const PREFETCH_COUNT = 5; // Number of songs to prefetch
 const MAX_CONCURRENT_REQUESTS = 3; // Limit concurrent requests
-const REQUEST_TIMEOUT = 8000; // 8 seconds timeout
+const REQUEST_TIMEOUT = 60000; // 60 seconds timeout (Python service can be slow)
 
 export interface YouTubeVideo {
   id: string;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { YouTubeService } from '../services/youtubeService';
+import { YouTubeService } from '../../services/youtubeService';
 
 interface PerformanceMetrics {
   frontend: {

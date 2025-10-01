@@ -15,8 +15,9 @@ import {
 } from '@heroicons/react/24/solid';
 import { HeartIcon, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
-import { usePlayer } from '../../contexts/PlayerContext';
+import { usePlayer } from '../../hooks/usePlayer';
 import { usePlaylist } from '../../contexts/PlaylistContext';
+import { useRecommendationTracking } from '../../hooks/useRecommendationTracking';
 import { playlistService } from '../../services/playlistService';
 import FullScreenPlayer from './FullScreenPlayer';
 import QueuePanel from './QueuePanel';
@@ -51,6 +52,7 @@ const Player: React.FC = () => {
   const [previousVolume, setPreviousVolume] = useState(volume);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
   const { playlists, addSongToPlaylist } = usePlaylist();
+  const { trackLike, trackDislike, trackAddToPlaylist } = useRecommendationTracking();
   
   // Check if song is liked on load
   useEffect(() => {
@@ -118,7 +120,7 @@ const Player: React.FC = () => {
   };
 
   const getRepeatColor = () => {
-    return repeatMode !== 'off' ? 'text-spotify-green' : 'text-spotify-text-gray';
+    return repeatMode !== 'none' ? 'text-spotify-green' : 'text-spotify-text-gray';
   };
 
   const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -130,6 +132,11 @@ const Player: React.FC = () => {
       
       const songData = playlistService.convertToAddSongData(currentSong);
       await addSongToPlaylist(playlistId, songData);
+      
+      // Track for recommendations
+      trackAddToPlaylist(currentSong.youtubeId, playlistId).catch(err => 
+        console.warn('Failed to track playlist addition:', err)
+      );
       
       // You can add a toast notification here if you have a toast system
       console.log('Song added to playlist successfully');
@@ -155,6 +162,17 @@ const Player: React.FC = () => {
             onClick: () => {
               const newLikedState = !isLiked;
               setIsLiked(newLikedState);
+              
+              // Track like/dislike for recommendations
+              if (newLikedState) {
+                trackLike(currentSong.youtubeId).catch(err => 
+                  console.warn('Failed to track like:', err)
+                );
+              } else {
+                trackDislike(currentSong.youtubeId).catch(err => 
+                  console.warn('Failed to track dislike:', err)
+                );
+              }
               
               fetch(`http://localhost:3001/api/liked/${currentSong.id}`, {
                 method: newLikedState ? 'POST' : 'DELETE',
@@ -442,7 +460,7 @@ const Player: React.FC = () => {
           volume={volume}
           isLiked={isLiked}
           isShuffled={isShuffled}
-          repeatMode={repeatMode}
+          repeatMode={repeatMode === 'none' ? 'off' : repeatMode}
           autoplay={autoplay}
           onClose={() => setIsFullScreen(false)}
           onPlayPause={handlePlayPause}

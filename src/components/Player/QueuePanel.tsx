@@ -1,5 +1,5 @@
 import React from 'react';
-import { usePlayer } from '../../contexts/PlayerContext';
+import { usePlayer } from '../../hooks/usePlayer';
 import { QueueItem } from '../../services/queueService';
 
 interface QueuePanelProps {

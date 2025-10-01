@@ -487,8 +487,16 @@ def parse_title(full_title):
     return {"title": clean_title, "artist": ""}
 
 # Optimized search endpoint for SpiceZify
-@app.route("/api/youtube/search")
+@app.route("/api/youtube/search", methods=['GET', 'OPTIONS'])
 def search():
+    # Handle OPTIONS request for CORS
+    if request.method == 'OPTIONS':
+        response = Response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
+        return response
+    
     start_time = time.time()
     q = request.args.get("q", "")
     max_results = int(request.args.get("maxResults", 20))
@@ -497,7 +505,9 @@ def search():
     logger.info(f"Search request: '{q}' (maxResults: {max_results}, verifiedOnly: {verified_only})")
     
     if not q:
-        return jsonify({"error": "missing query"}), 400
+        response = jsonify({"error": "missing query"})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 400
     
     # Temporarily set verified-only mode if requested
     global ENFORCE_VERIFIED_ONLY
@@ -515,7 +525,10 @@ def search():
         cached_data = search_cache.get(cache_key)
         if cached_data:
             logger.info(f"Cache hit for '{search_query}' - returning cached results")
-            return jsonify(cached_data)
+            response = jsonify(cached_data)
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
+            return response
         
         # === NEW discovery block: try YT Music first, then aiotube ===
         ids = []
@@ -686,30 +699,70 @@ def search():
         }
         
         search_cache.set(cache_key, response_data, ttl=300)
+        logger.info(f"Cached data for key: {cache_key[:50]}... (expires in 300s)")
         
         # Restore original verified-only setting
         ENFORCE_VERIFIED_ONLY = original_verified_only
-        return jsonify(response_data)
+        
+        # Create response with CORS headers
+        response = jsonify(response_data)
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
+        return response
         
     except Exception as e:
         # Always restore verified-only setting even on error
         ENFORCE_VERIFIED_ONLY = original_verified_only
         logger.error(f"Search failed with error: {str(e)}")
-        return jsonify({"error": "search failed", "details": str(e)}), 500
+        response = jsonify({"error": "search failed", "details": str(e)})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
+
+# Helper: get default yt-dlp options
+def get_ydl_opts():
+    """Get optimized yt-dlp options for latest version"""
+    return {
+        "quiet": True,
+        "skip_download": True,
+        "format": "bestaudio[ext=m4a]/bestaudio/best[height<=720]",
+        "no_warnings": True,
+        "socket_timeout": 30,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android", "web"],
+                "skip": ["hls"]
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15"
+        }
+    }
 
 # Helper: use yt-dlp to get direct audio URL - optimized
 def resolve_audio_url(video_id):
+    """Resolve audio URL using latest yt-dlp with optimized settings"""
     ytdl_opts = {
         "quiet": True,
         "skip_download": True,
-        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=480]/best",
+        "format": "bestaudio[ext=m4a]/bestaudio/best[height<=720]",
         "no_warnings": True,
-        "extractor_args": {"youtube": {"skip": ["dash", "hls"]}},
-        "socket_timeout": 15,
+        "socket_timeout": 30,
+        # Use multiple player clients for better compatibility with latest yt-dlp
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android", "web"],
+                "skip": ["hls"]  # Skip HLS streams as they can be problematic
+            }
+        },
+        # Add headers to avoid detection
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15"
+        }
     }
     
     try:
-        logger.info(f"Using yt-dlp to extract audio for: {video_id}")
+        logger.info(f"Using yt-dlp (2025.9.26) to extract audio for: {video_id}")
+        
         with YoutubeDL(ytdl_opts) as ytdl:
             info = ytdl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             
@@ -717,39 +770,25 @@ def resolve_audio_url(video_id):
                 logger.error(f"No video info retrieved for {video_id}")
                 return None
             
-            # Get the best audio format
-            formats = info.get("formats", [])
-            logger.info(f"Found {len(formats)} formats for {video_id}")
+            # With the format selector, yt-dlp should give us the direct URL
+            audio_url = info.get("url")
             
-            if not formats:
-                url = info.get("url")
-                logger.info(f"Using direct URL: {url[:100] if url else 'None'}...")
-                return url
+            if not audio_url:
+                logger.error(f"No URL in extracted info for {video_id}")
+                return None
             
-            # Prefer audio-only formats first
-            audio_formats = [f for f in formats if f.get("acodec") != "none" and f.get("vcodec") == "none"]
-            logger.info(f"Found {len(audio_formats)} audio-only formats")
+            # Verify it's not a storyboard URL
+            if "/sb/" in audio_url or "storyboard" in audio_url.lower():
+                logger.error(f"Extracted URL is storyboard: {audio_url[:100]}...")
+                return None
             
-            if audio_formats:
-                # Get the best quality audio-only format
-                best_audio = max(audio_formats, key=lambda x: x.get("abr", 0) or 0)
-                url = best_audio.get("url")
-                abr = best_audio.get("abr", 0)
-                ext = best_audio.get("ext", "unknown")
-                logger.info(f"Selected audio format: {ext} @ {abr}kbps")
-                return url
+            # Verify it's a valid HTTP URL
+            if not audio_url.startswith("http"):
+                logger.error(f"Invalid URL format: {audio_url[:100]}...")
+                return None
             
-            # Fallback to any format with audio
-            logger.info("Falling back to formats with audio")
-            for f in reversed(formats):
-                if f.get("acodec") != "none":
-                    url = f.get("url")
-                    logger.info(f"Using fallback format: {f.get('ext', 'unknown')}")
-                    return url
-            
-            url = info.get("url")
-            logger.info(f"Using video info URL as last resort")
-            return url
+            logger.info(f"Successfully extracted audio URL: {audio_url[:100]}...")
+            return audio_url
             
     except Exception as e:
         logger.error(f"Error resolving audio URL for {video_id}: {str(e)}")
@@ -839,6 +878,142 @@ def audio_proxy(video_id):
     
     status_code = upstream.status_code if upstream.status_code in [200, 206] else 200
     return Response(stream_with_context(generate()), status=status_code, headers=response_headers)
+
+# Video details endpoint
+@app.route("/api/youtube/video/<video_id>")
+def get_video_details(video_id):
+    """Get detailed information about a specific video"""
+    start_time = time.time()
+    logger.info(f"Video details request for: {video_id}")
+    
+    try:
+        clean_id = extract_video_id(video_id)
+        if not clean_id:
+            return jsonify({"error": "Invalid video ID"}), 400
+        
+        # Use yt-dlp to get video details
+        ydl_opts = get_ydl_opts()
+        ydl_opts['quiet'] = True
+        
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={clean_id}", download=False)
+            
+            # Extract relevant details
+            video_details = {
+                "id": clean_id,
+                "title": info.get("title", "Unknown Title"),
+                "artist": info.get("uploader", "Unknown Artist"),
+                "duration": info.get("duration", 0),
+                "view_count": info.get("view_count", 0),
+                "like_count": info.get("like_count", 0),
+                "upload_date": info.get("upload_date"),
+                "description": info.get("description", "")[:500],  # Limit description length
+                "thumbnail": info.get("thumbnail"),
+                "thumbnails": info.get("thumbnails", []),
+                "formats": [
+                    {
+                        "format_id": f.get("format_id"),
+                        "quality": f.get("quality"),
+                        "format_note": f.get("format_note"),
+                        "ext": f.get("ext"),
+                        "filesize": f.get("filesize")
+                    }
+                    for f in info.get("formats", [])
+                    if f.get("vcodec") == "none"  # Audio only formats
+                ][:5]  # Limit to first 5 formats
+            }
+            
+            fetch_time = time.time() - start_time
+            logger.info(f"Video details fetched in {fetch_time:.2f}s for {clean_id}")
+            
+            return jsonify(video_details)
+            
+    except Exception as e:
+        logger.error(f"Error fetching video details for {video_id}: {str(e)}")
+        return jsonify({"error": f"Could not fetch video details: {str(e)}"}), 500
+
+# Related videos endpoint
+@app.route("/api/youtube/related/<video_id>")
+def get_related_videos(video_id):
+    """Get related videos for a given video ID"""
+    start_time = time.time()
+    logger.info(f"Related videos request for: {video_id}")
+    
+    try:
+        clean_id = extract_video_id(video_id)
+        if not clean_id:
+            return jsonify({"error": "Invalid video ID"}), 400
+        
+        # First try to get video details to extract artist/title for better search
+        try:
+            ydl_opts = get_ydl_opts()
+            ydl_opts['quiet'] = True
+            
+            with YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(f"https://www.youtube.com/watch?v={clean_id}", download=False)
+                title = info.get("title", "")
+                artist = info.get("uploader", "")
+                
+                # Extract key terms for related search
+                search_terms = []
+                if artist and artist.lower() not in ["unknown", "various artists"]:
+                    search_terms.append(artist)
+                
+                # Extract meaningful words from title
+                if title:
+                    title_words = re.findall(r'\b[a-zA-Z]{3,}\b', title)
+                    search_terms.extend(title_words[:3])  # Take first 3 meaningful words
+                
+                search_query = " ".join(search_terms[:5]) + " music"  # Limit to 5 terms + "music"
+                
+        except Exception as e:
+            logger.warning(f"Could not extract terms from video {clean_id}, using generic search: {str(e)}")
+            search_query = "popular music"
+        
+        # Use the existing search functionality to find related tracks
+        max_results = min(int(request.args.get('maxResults', 8)), 20)
+        
+        logger.info(f"Searching for related tracks with query: '{search_query}'")
+        
+        # Call our internal search function
+        try:
+            # Use YTMusic to find related tracks
+            search_results = ytm.search(search_query, filter='songs', limit=max_results * 2)
+            
+            tracks = []
+            for result in search_results[:max_results]:
+                if result.get('videoId') and result['videoId'] != clean_id:  # Exclude the original video
+                    track = {
+                        'id': result['videoId'],
+                        'title': result.get('title', 'Unknown Title'),
+                        'artist': ', '.join([artist['name'] for artist in result.get('artists', [])]) or 'Unknown Artist',
+                        'duration': result.get('duration_seconds', 0),
+                        'thumbnail': result.get('thumbnails', [{}])[-1].get('url', ''),
+                        'url': f"https://www.youtube.com/watch?v={result['videoId']}"
+                    }
+                    tracks.append(track)
+            
+            fetch_time = time.time() - start_time
+            logger.info(f"Found {len(tracks)} related tracks in {fetch_time:.2f}s")
+            
+            return jsonify({
+                'related_videos': tracks,
+                'search_query': search_query,
+                'original_video_id': clean_id,
+                'count': len(tracks)
+            })
+            
+        except Exception as e:
+            logger.error(f"YTMusic search failed, falling back to basic response: {str(e)}")
+            return jsonify({
+                'related_videos': [],
+                'error': 'Could not find related videos',
+                'original_video_id': clean_id
+            })
+            
+    except Exception as e:
+        logger.error(f"Error finding related videos for {video_id}: {str(e)}")
+        return jsonify({"error": f"Could not find related videos: {str(e)}"}), 500
 
 # Health check endpoint
 @app.route("/api/youtube/health")

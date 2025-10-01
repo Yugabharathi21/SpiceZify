@@ -12,7 +12,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import LikedSongs from './pages/LikedSongs';
 import ListenTogether from './pages/ListenTogether';
-import ListenTogetherNew from './pages/ListenTogetherNew';
+import Recommendations from './pages/Recommendations';
 import ProtectedRoute from './components/Auth/ProtectedRoute';
 
 function App() {
@@ -35,8 +35,8 @@ function App() {
                 <Route path="library" element={<Library />} />
                 <Route path="playlist/:id" element={<Playlist />} />
                 <Route path="liked" element={<LikedSongs />} />
+                <Route path="recommendations" element={<Recommendations />} />
                 <Route path="listen-together" element={<ListenTogether />} />
-                <Route path="listen-together-new" element={<ListenTogetherNew />} />
               </Route>
             </Routes>
           </div>

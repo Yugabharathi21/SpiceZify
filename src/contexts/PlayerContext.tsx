@@ -33,6 +33,7 @@ export interface PlayerContextType {
   
   // Control methods
   playSong: (song: Song, addRelated?: boolean) => Promise<void>;
+  playQueue?: (songs: Song[], startIndex?: number) => Promise<void>;
   pauseSong: () => void;
   resumeSong: () => void;
   nextSong: () => void;
@@ -43,6 +44,14 @@ export interface PlayerContextType {
   removeFromQueue: (songId: string) => void;
   clearQueue: () => void;
   shuffleQueue: () => void;
+  
+  // Player state
+  isShuffled: boolean;
+  toggleShuffle: () => void;
+  repeatMode: 'none' | 'one' | 'all';
+  toggleRepeat: () => void;
+  autoplay: boolean;
+  toggleAutoplay: () => void;
   
   // Settings
   setVolume: (volume: number) => void;
@@ -56,8 +65,6 @@ export interface PlayerContextType {
 }
 
 export const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
-
-
 
 interface PlayerProviderProps {
   children: ReactNode;
@@ -135,7 +142,7 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     youtubeId: song.youtubeId,
     channelTitle: song.channelTitle || 'Unknown Channel',
     isVerified: song.isVerified || false,
-    streamUrl: song.streamUrl || `http://localhost:3001/api/youtube/audio/${song.youtubeId}`,
+    streamUrl: song.streamUrl || `http://localhost:5001/api/youtube/audio/${song.youtubeId}`,
     addedAt: Date.now()
   });
 
@@ -239,6 +246,44 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     queueService.setRepeatMode(mode);
   };
 
+  // Additional player controls
+  const playQueue = async (songs: Song[], startIndex: number = 0) => {
+    if (songs.length === 0) return;
+    
+    // Clear current queue and play from the specified index
+    queueService.clearQueue();
+    
+    // Convert songs to queue items and add them
+    const queueItems = songs.map(songToQueueItem);
+    for (let i = 0; i < queueItems.length; i++) {
+      await queueService.addToQueue(queueItems[i], 'end');
+    }
+    
+    // Play the song at the specified index
+    if (startIndex < songs.length) {
+      await playSong(songs[startIndex], false);
+    }
+  };
+
+  const toggleShuffle = () => {
+    // For now, just shuffle if not shuffled
+    if (!queue.isShuffled) {
+      queueService.shuffleQueue();
+    }
+    // TODO: Implement unshuffle functionality in queueService
+  };
+
+  const toggleRepeat = () => {
+    const modes: ('none' | 'one' | 'all')[] = ['none', 'one', 'all'];
+    const currentIndex = modes.indexOf(queue.repeatMode);
+    const nextMode = modes[(currentIndex + 1) % modes.length];
+    setRepeatMode(nextMode);
+  };
+
+  const toggleAutoplay = () => {
+    setAutoPlay(!queue.isAutoPlay);
+  };
+
   // Playback control
   const setCurrentTime = (time: number) => {
     const newTime = Math.max(0, Math.min(duration, time));
@@ -294,6 +339,7 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     
     // Control methods
     playSong,
+    playQueue,
     pauseSong,
     resumeSong,
     nextSong,
@@ -304,6 +350,14 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     removeFromQueue,
     clearQueue,
     shuffleQueue,
+    
+    // Player state
+    isShuffled: queue.isShuffled || false,
+    toggleShuffle,
+    repeatMode: queue.repeatMode || 'none',
+    toggleRepeat,
+    autoplay: queue.isAutoPlay || false,
+    toggleAutoplay,
     
     // Settings
     setVolume,
