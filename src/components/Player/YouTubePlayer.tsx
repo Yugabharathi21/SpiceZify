@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 interface YouTubePlayerProps {
   videoId: string;
@@ -11,6 +11,88 @@ interface YouTubePlayerProps {
   onEnd?: () => void;
   seekTime?: number;
   onError?: (error: string) => void;
+  // Optimization props
+  preloadNext?: string; // Next video ID to preload
+  bufferSize?: number; // Buffer size preference
+  enablePreloading?: boolean;
+}
+
+// Audio preloading and caching system
+class AudioCache {
+  private static cache = new Map<string, { audio: HTMLAudioElement; loaded: boolean; lastUsed: number }>();
+  private static readonly MAX_CACHE_SIZE = 5;
+  
+  static preload(videoId: string): HTMLAudioElement {
+    const existing = this.cache.get(videoId);
+    if (existing) {
+      existing.lastUsed = Date.now();
+      return existing.audio;
+    }
+    
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.src = `http://localhost:3001/api/youtube/audio/${videoId}`;
+    audio.crossOrigin = 'anonymous';
+    
+    // Clean up old entries if cache is full
+    if (this.cache.size >= this.MAX_CACHE_SIZE) {
+      const entries = Array.from(this.cache.entries());
+      entries.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+      const oldestKey = entries[0][0];
+      const oldAudio = this.cache.get(oldestKey)?.audio;
+      if (oldAudio) {
+        oldAudio.src = '';
+        oldAudio.load();
+      }
+      this.cache.delete(oldestKey);
+    }
+    
+    this.cache.set(videoId, {
+      audio,
+      loaded: false,
+      lastUsed: Date.now()
+    });
+    
+    // Set up load event
+    audio.addEventListener('canplaythrough', () => {
+      const entry = this.cache.get(videoId);
+      if (entry) {
+        entry.loaded = true;
+        console.log(`🚀 Preloaded audio: ${videoId}`);
+      }
+    });
+    
+    audio.addEventListener('error', () => {
+      console.warn(`⚠️ Failed to preload audio: ${videoId}`);
+      this.cache.delete(videoId);
+    });
+    
+    console.log(`🔊 Starting preload: ${videoId}`);
+    return audio;
+  }
+  
+  static get(videoId: string): HTMLAudioElement | null {
+    const entry = this.cache.get(videoId);
+    if (entry) {
+      entry.lastUsed = Date.now();
+      return entry.audio;
+    }
+    return null;
+  }
+  
+  static isLoaded(videoId: string): boolean {
+    const entry = this.cache.get(videoId);
+    return entry ? entry.loaded : false;
+  }
+  
+  static clear(): void {
+    this.cache.forEach(({ audio }) => {
+      audio.src = '';
+      audio.load();
+    });
+    this.cache.clear();
+    console.log('🧹 Audio cache cleared');
+  }
 }
 
 const YouTubePlayer: React.FC<YouTubePlayerProps> = ({ 
@@ -23,24 +105,64 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
   onDurationChange,
   onEnd,
   onError,
-  seekTime
+  seekTime,
+  // Optimization props
+  preloadNext,
+  bufferSize = 5, // seconds
+  enablePreloading = true
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [lastSeekTime, setLastSeekTime] = useState(0);
   const [hasError, setHasError] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const intervalRef = useRef<number | null>(null);
 
-  // Audio event handlers
-  const handleLoadStart = () => {
-    console.log('Audio loading started for video:', videoId);
+  const intervalRef = useRef<number | null>(null);
+  const performanceRef = useRef({ startTime: 0, firstByteTime: 0, canPlayTime: 0 });
+
+  // Optimized audio event handlers with performance tracking
+  const handleLoadStart = useCallback(() => {
+    console.log('🔊 Audio loading started for video:', videoId);
+    performanceRef.current.startTime = performance.now();
     setIsLoading(true);
     setHasError(false);
-  };
+  }, [videoId]);
+  
+  const handleProgress = useCallback(() => {
+    if (audioRef.current) {
+      const buffered = audioRef.current.buffered;
+      const currentTime = audioRef.current.currentTime;
+      
+      if (buffered.length > 0) {
+        // Calculate buffer health (how much is buffered ahead)
+        let bufferEnd = 0;
+        for (let i = 0; i < buffered.length; i++) {
+          if (buffered.start(i) <= currentTime && buffered.end(i) > currentTime) {
+            bufferEnd = buffered.end(i);
+            break;
+          }
+        }
+        
+        const bufferAhead = Math.max(0, bufferEnd - currentTime);
+        // Buffer health tracking (can be used for UI indicators)
+        
+        // Log first data arrival
+        if (performanceRef.current.firstByteTime === 0 && bufferAhead > 0) {
+          performanceRef.current.firstByteTime = performance.now();
+          const firstByteLatency = performanceRef.current.firstByteTime - performanceRef.current.startTime;
+          console.log(`⚡ First byte received in ${firstByteLatency.toFixed(2)}ms for ${videoId}`);
+        }
+      }
+    }
+  }, [videoId]);
 
-  const handleCanPlay = () => {
-    console.log('Audio ready for video:', videoId);
+  const handleCanPlay = useCallback(() => {
+    const canPlayTime = performance.now();
+    performanceRef.current.canPlayTime = canPlayTime;
+    const totalLoadTime = canPlayTime - performanceRef.current.startTime;
+    
+    console.log(`✅ Audio ready for ${videoId} in ${totalLoadTime.toFixed(2)}ms`);
+    
     setIsPlayerReady(true);
     setIsLoading(false);
     setHasError(false);
@@ -51,10 +173,20 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
       if (duration && onDurationChange && !isNaN(duration)) {
         onDurationChange(duration);
       }
+      
+      // Optimize buffer settings
+      try {
+        // Set buffer parameters if supported
+        if ('mozAudioChannelType' in audioRef.current) {
+          (audioRef.current as HTMLAudioElement & { mozAudioChannelType?: string }).mozAudioChannelType = 'content';
+        }
+      } catch {
+        // Browser doesn't support this optimization
+      }
     }
     
     onReady?.();
-  };
+  }, [videoId, volume, onDurationChange, onReady]);
 
   const handlePlay = () => {
     console.log('Audio playing:', videoId);
@@ -177,18 +309,34 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     };
   }, []);
 
+  // Preload next track for faster transitions
+  useEffect(() => {
+    if (enablePreloading && preloadNext && preloadNext !== videoId) {
+      console.log(`🚀 Preloading next track: ${preloadNext}`);
+      AudioCache.preload(preloadNext);
+    }
+  }, [preloadNext, videoId, enablePreloading]);
+  
   // Reset when video changes
   useEffect(() => {
-    console.log('Audio source changed to:', videoId);
+    console.log('🔄 Audio source changed to:', videoId);
     setIsPlayerReady(false);
     setLastSeekTime(0);
     setHasError(false);
     setIsLoading(false);
+    performanceRef.current = { startTime: 0, firstByteTime: 0, canPlayTime: 0 };
     stopTimeUpdates();
   }, [videoId]);
 
   // Generate stream URL - now working properly
-  const streamUrl = `http://localhost:3001/api/youtube/audio/${videoId}`;
+  // Try to use cached audio first, then fallback to new instance
+  const streamUrl = useMemo(() => {
+    if (enablePreloading && AudioCache.isLoaded(videoId)) {
+      console.log(`🎯 Using cached audio for ${videoId}`);
+      return AudioCache.get(videoId)?.src || `http://localhost:3001/api/youtube/audio/${videoId}`;
+    }
+    return `http://localhost:3001/api/youtube/audio/${videoId}`;
+  }, [videoId, enablePreloading]);
 
   return (
     <div style={{ position: 'absolute', top: '-9999px', left: '-9999px' }}>
@@ -196,8 +344,9 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
         ref={audioRef}
         key={videoId}
         src={streamUrl}
-        preload="metadata"
+        preload={enablePreloading ? "auto" : "metadata"}
         onLoadStart={handleLoadStart}
+        onProgress={handleProgress}
         onCanPlay={handleCanPlay}
         onPlay={handlePlay}
         onPause={handlePause}
@@ -205,7 +354,13 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
         onError={handleError}
         onLoadedMetadata={handleLoadedMetadata}
         crossOrigin="anonymous"
+        // Optimization attributes
+        autoPlay={false}
+        muted={false}
+        // Add buffer size hint if supported
+        {...(bufferSize && { 'data-buffer-size': bufferSize })}
       />
+
     </div>
   );
 };

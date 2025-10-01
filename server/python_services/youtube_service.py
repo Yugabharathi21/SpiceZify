@@ -8,6 +8,15 @@ from yt_dlp import YoutubeDL
 import threading
 import time
 import logging
+from functools import lru_cache
+from urllib.parse import urlparse
+import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+import asyncio
+from typing import Dict, Optional, List, Tuple
+import json
+from datetime import datetime, timedelta
 
 # Configure logging for debugging
 logging.basicConfig(level=logging.INFO)
@@ -16,10 +25,170 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React frontend
 
-# Simple in-memory cache for faster responses
-search_cache = {}
-related_cache = {}
-CACHE_DURATION = 300  # 5 minutes
+# Connection pooling and request optimization
+class RequestManager:
+    def __init__(self, max_workers: int = 10, timeout: int = 30):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
+        
+        # Configure connection pool
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=100,
+            max_retries=3,
+            pool_block=False
+        )
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
+        
+        self.executor = ThreadPoolExecutor(max_workers=max_workers)
+        self.timeout = timeout
+        
+    def get(self, url: str, **kwargs):
+        """Optimized GET request with connection pooling"""
+        kwargs.setdefault('timeout', self.timeout)
+        return self.session.get(url, **kwargs)
+        
+    def get_multiple(self, urls: List[str], max_concurrent: int = 5) -> List[Tuple[str, requests.Response]]:
+        """Fetch multiple URLs concurrently"""
+        results = []
+        
+        def fetch_url(url):
+            try:
+                response = self.get(url)
+                return (url, response)
+            except Exception as e:
+                logger.error(f"❌ Error fetching {url}: {str(e)}")
+                return (url, None)
+        
+        # Submit tasks to thread pool
+        future_to_url = {self.executor.submit(fetch_url, url): url for url in urls[:max_concurrent]}
+        
+        for future in as_completed(future_to_url):
+            result = future.result()
+            results.append(result)
+            
+        return results
+        
+    def __del__(self):
+        self.session.close()
+        self.executor.shutdown(wait=False)
+
+# Initialize request manager
+request_manager = RequestManager(max_workers=20, timeout=15)
+
+# Advanced caching system with TTL and memory management
+class CacheManager:
+    def __init__(self, max_size: int = 1000, default_ttl: int = 300):
+        self.max_size = max_size
+        self.default_ttl = default_ttl
+        self.cache: Dict[str, Dict] = {}
+        self.lock = Lock()
+        
+    def _cleanup_expired(self):
+        """Remove expired cache entries"""
+        current_time = time.time()
+        expired_keys = []
+        
+        for key, entry in self.cache.items():
+            if current_time > entry['expires_at']:
+                expired_keys.append(key)
+        
+        for key in expired_keys:
+            del self.cache[key]
+            
+        logger.info(f"🧹 Cleaned up {len(expired_keys)} expired cache entries")
+    
+    def _cleanup_lru(self):
+        """Remove least recently used entries if cache is full"""
+        if len(self.cache) <= self.max_size:
+            return
+            
+        # Sort by last_accessed time and remove oldest entries
+        sorted_entries = sorted(self.cache.items(), key=lambda x: x[1]['last_accessed'])
+        entries_to_remove = len(self.cache) - self.max_size + 10  # Remove extra for buffer
+        
+        for i in range(entries_to_remove):
+            if i < len(sorted_entries):
+                key = sorted_entries[i][0]
+                del self.cache[key]
+                
+        logger.info(f"🗑️ LRU cleanup: removed {entries_to_remove} entries")
+    
+    def get(self, key: str) -> Optional[any]:
+        with self.lock:
+            if key not in self.cache:
+                return None
+                
+            entry = self.cache[key]
+            current_time = time.time()
+            
+            # Check if expired
+            if current_time > entry['expires_at']:
+                del self.cache[key]
+                return None
+                
+            # Update last accessed time
+            entry['last_accessed'] = current_time
+            entry['access_count'] += 1
+            
+            logger.info(f"🎯 Cache hit for key: {key[:50]}... (accessed {entry['access_count']} times)")
+            return entry['data']
+    
+    def set(self, key: str, data: any, ttl: Optional[int] = None):
+        with self.lock:
+            current_time = time.time()
+            expires_at = current_time + (ttl or self.default_ttl)
+            
+            self.cache[key] = {
+                'data': data,
+                'created_at': current_time,
+                'last_accessed': current_time,
+                'expires_at': expires_at,
+                'access_count': 1
+            }
+            
+            # Cleanup if needed
+            if len(self.cache) % 50 == 0:  # Cleanup every 50 entries
+                self._cleanup_expired()
+                
+            if len(self.cache) > self.max_size:
+                self._cleanup_lru()
+                
+            logger.info(f"💾 Cached data for key: {key[:50]}... (expires in {ttl or self.default_ttl}s)")
+    
+    def invalidate(self, key: str):
+        with self.lock:
+            if key in self.cache:
+                del self.cache[key]
+                logger.info(f"🗑️ Invalidated cache key: {key[:50]}...")
+    
+    def get_stats(self) -> Dict:
+        with self.lock:
+            total_entries = len(self.cache)
+            current_time = time.time()
+            expired_count = sum(1 for entry in self.cache.values() 
+                              if current_time > entry['expires_at'])
+            
+            return {
+                'total_entries': total_entries,
+                'expired_entries': expired_count,
+                'active_entries': total_entries - expired_count,
+                'cache_hit_potential': f"{((total_entries - expired_count) / max(total_entries, 1) * 100):.1f}%"
+            }
+
+# Initialize cache managers
+search_cache = CacheManager(max_size=500, default_ttl=300)  # 5 minutes
+related_cache = CacheManager(max_size=200, default_ttl=600)  # 10 minutes
+video_cache = CacheManager(max_size=1000, default_ttl=1800)  # 30 minutes
+CACHE_DURATION = 300  # Legacy variable for compatibility
 
 # Verified music channels and artists
 VERIFIED_MUSIC_CHANNELS = {
@@ -259,15 +428,13 @@ def search():
     search_query = f"{q} music" if "music" not in q.lower() else q
     logger.info(f"📝 Modified query: '{search_query}'")
 
-    # Check cache first
-    cache_key = f"{search_query}:{max_results}"
-    current_time = time.time()
+    # Check cache first with optimized cache key
+    cache_key = hashlib.md5(f"{search_query}:{max_results}".encode()).hexdigest()
     
-    if cache_key in search_cache:
-        cached_data, cache_time = search_cache[cache_key]
-        if current_time - cache_time < CACHE_DURATION:
-            logger.info(f"🎯 Cache hit for '{search_query}' - returning cached results")
-            return jsonify(cached_data)
+    cached_data = search_cache.get(cache_key)
+    if cached_data:
+        logger.info(f"🎯 Cache hit for '{search_query}' - returning cached results")
+        return jsonify(cached_data)
     
     # Get video IDs first (fast operation)
     try:
@@ -403,14 +570,19 @@ def search():
     total_time = time.time() - start_time
     logger.info(f"🎯 Search completed: {len(results)} results in {total_time:.2f}s (processing: {processing_time:.2f}s)")
     
-    # Cache the results
-    response_data = {"query": q, "results": results, "count": len(results), "verified_count": verified_count}
-    search_cache[cache_key] = (response_data, current_time)
-    
-    # Clean old cache entries (simple cleanup)
-    if len(search_cache) > 50:  # Keep only 50 recent searches
-        oldest_key = min(search_cache.keys(), key=lambda k: search_cache[k][1])
-        del search_cache[oldest_key]
+    # Cache the results with performance metadata
+    response_data = {
+        "query": q, 
+        "results": results, 
+        "count": len(results), 
+        "verified_count": verified_count,
+        "performance": {
+            "total_time": round(total_time, 2),
+            "processing_time": round(processing_time, 2),
+            "cached": False
+        }
+    }
+    search_cache.set(cache_key, response_data, ttl=300)
     
     return jsonify(response_data)
 
@@ -422,15 +594,13 @@ def get_related_songs(video_id):
         if not clean_id:
             return jsonify({"error": "Invalid video ID"}), 400
         
-        # Check cache first
+        # Check cache first with optimized key
         cache_key = f"related:{clean_id}"
-        current_time = time.time()
         
-        if cache_key in related_cache:
-            cached_data, cache_time = related_cache[cache_key]
-            if current_time - cache_time < CACHE_DURATION:
-                logger.info(f"🎯 Related cache hit for {clean_id}")
-                return jsonify(cached_data)
+        cached_data = related_cache.get(cache_key)
+        if cached_data:
+            logger.info(f"🎯 Related cache hit for {clean_id}")
+            return jsonify(cached_data)
         
         logger.info(f"🔗 Getting related songs for: {clean_id}")
         
@@ -530,12 +700,7 @@ def get_related_songs(video_id):
         }
         
         # Cache the results
-        related_cache[cache_key] = (response_data, current_time)
-        
-        # Clean old cache entries
-        if len(related_cache) > 100:
-            oldest_key = min(related_cache.keys(), key=lambda k: related_cache[k][1])
-            del related_cache[oldest_key]
+        related_cache.set(cache_key, response_data, ttl=600)  # Cache for 10 minutes
         
         return jsonify(response_data)
         
@@ -680,7 +845,7 @@ def audio_proxy(video_id):
         if range_header:
             headers['Range'] = range_header
             
-        upstream = requests.get(audio_url, stream=True, timeout=30, headers=headers)
+        upstream = request_manager.get(audio_url, stream=True, headers=headers)
         upstream.raise_for_status()
         
         logger.info(f"🎧 Upstream response: {upstream.status_code}, Content-Type: {upstream.headers.get('Content-Type', 'unknown')}")
@@ -723,12 +888,64 @@ def audio_proxy(video_id):
     status_code = upstream.status_code if upstream.status_code in [200, 206] else 200
     return Response(stream_with_context(generate()), status=status_code, headers=response_headers)
 
+# Cache statistics endpoint
+@app.route("/api/youtube/cache/stats")
+def cache_stats():
+    return jsonify({
+        "search_cache": search_cache.get_stats(),
+        "related_cache": related_cache.get_stats(),
+        "video_cache": video_cache.get_stats()
+    })
+
+# Cache management endpoint
+@app.route("/api/youtube/cache/clear", methods=['POST'])
+def clear_cache():
+    cache_type = request.json.get('type', 'all') if request.json else 'all'
+    
+    if cache_type == 'all' or cache_type == 'search':
+        search_cache.cache.clear()
+    if cache_type == 'all' or cache_type == 'related':
+        related_cache.cache.clear()
+    if cache_type == 'all' or cache_type == 'video':
+        video_cache.cache.clear()
+        
+    logger.info(f"🧹 Cleared {cache_type} cache")
+    return jsonify({"status": "ok", "cleared": cache_type})
+
+# Performance metrics endpoint
+@app.route("/api/youtube/metrics")
+def metrics():
+    return jsonify({
+        "cache_stats": {
+            "search_cache": search_cache.get_stats(),
+            "related_cache": related_cache.get_stats(),
+            "video_cache": video_cache.get_stats()
+        },
+        "service_info": {
+            "uptime": time.time() - start_time,
+            "version": "2.0-optimized",
+            "features": ["caching", "connection_pooling", "concurrent_processing", "performance_monitoring"]
+        }
+    })
+
 # Health check endpoint
 @app.route("/api/youtube/health")
 def health():
-    return jsonify({"status": "ok", "service": "SpiceZify YouTube Service"})
+    return jsonify({
+        "status": "ok", 
+        "service": "SpiceZify YouTube Service",
+        "version": "2.0-optimized",
+        "cache_status": "active",
+        "uptime": round(time.time() - start_time, 2)
+    })
+
+# Track service start time
+start_time = time.time()
 
 if __name__ == "__main__":
-    print("Starting SpiceZify YouTube Service...")
-    print("Make sure to install dependencies: pip install flask flask-cors aiotube yt-dlp requests")
+    print("🚀 Starting SpiceZify YouTube Service v2.0 (Optimized)...")
+    print("📦 Features: Advanced Caching, Connection Pooling, Performance Monitoring")
+    print("📋 Make sure to install dependencies: pip install flask flask-cors aiotube yt-dlp requests")
+    print("⚡ Service will be available at http://localhost:5001")
+    print("📊 Metrics available at http://localhost:5001/api/youtube/metrics")
     app.run(debug=True, port=5001, host='0.0.0.0')

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useState, useEffect, ReactNode, useCallback, useMemo } from 'react';
 import YouTubePlayer from '../components/Player/YouTubePlayer';
 import { queueService, QueueItem, Queue } from '../services/queueService';
+import { YouTubeService } from '../services/youtubeService';
 
 // Updated Song interface to match QueueItem
 interface Song {
@@ -15,7 +16,7 @@ interface Song {
   streamUrl?: string;
 }
 
-interface PlayerContextType {
+export interface PlayerContextType {
   // Current playback state
   currentSong: QueueItem | null;
   isPlaying: boolean;
@@ -54,15 +55,9 @@ interface PlayerContextType {
   setDuration: (duration: number) => void;
 }
 
-const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
+export const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
 
-export const usePlayer = () => {
-  const context = useContext(PlayerContext);
-  if (context === undefined) {
-    throw new Error('usePlayer must be used within a PlayerProvider');
-  }
-  return context;
-};
+
 
 interface PlayerProviderProps {
   children: ReactNode;
@@ -79,7 +74,39 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
   // Queue state from service
   const [queue, setQueue] = useState<Queue>(queueService.getQueue());
   
-  // Subscribe to queue changes
+  // Optimization state
+  const [prefetchEnabled] = useState(true);
+  const [loadingStates, setLoadingStates] = useState<Map<string, boolean>>(new Map());
+  
+  // Prefetch next songs for faster transitions
+  const prefetchNextSongs = useCallback(async () => {
+    if (!prefetchEnabled || !queue.current) return;
+    
+    const nextSongs = queue.upcoming.slice(0, 2); // Prefetch next 2 songs
+    
+    for (const song of nextSongs) {
+      if (!loadingStates.get(song.id)) {
+        console.log(`🚀 Starting prefetch for: ${song.title}`);
+        setLoadingStates(prev => new Map(prev).set(song.id, true));
+        
+        try {
+          // Prefetch audio details to warm up the cache
+          await YouTubeService.getVideoDetails(song.youtubeId);
+          console.log(`✅ Prefetched: ${song.title}`);
+        } catch (error) {
+          console.warn(`⚠️ Failed to prefetch ${song.title}:`, error);
+        } finally {
+          setLoadingStates(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(song.id);
+            return newMap;
+          });
+        }
+      }
+    }
+  }, [prefetchEnabled, queue, loadingStates]);
+  
+  // Subscribe to queue changes with prefetching
   useEffect(() => {
     const unsubscribe = queueService.subscribe((newQueue: Queue) => {
       setQueue(newQueue);
@@ -89,11 +116,14 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
         setIsPlaying(true);
         setCurrentTimeState(0);
         setSeekTime(0);
+        
+        // Start prefetching next songs
+        setTimeout(() => prefetchNextSongs(), 1000); // Delay to not interfere with current playback
       }
     });
     
     return unsubscribe;
-  }, [queue.current]);
+  }, [queue, prefetchNextSongs]);
 
   // Convert Song to QueueItem
   const songToQueueItem = (song: Song): QueueItem => ({
@@ -110,10 +140,33 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
   });
 
   // Play a song and optionally add related songs
-  const playSong = async (song: Song, addRelated: boolean = true) => {
-    const queueItem = songToQueueItem(song);
-    await queueService.playSong(queueItem, addRelated);
-  };
+  const playSong = useCallback(async (song: Song, addRelated: boolean = true) => {
+    try {
+      console.log(`🎵 Playing: ${song.title} by ${song.artist}`);
+      const startTime = performance.now();
+      
+      const queueItem = songToQueueItem(song);
+      
+      // Prefetch video details for better performance
+      const detailsPromise = YouTubeService.getVideoDetails(song.youtubeId).catch(() => null);
+      
+      // Play the song
+      await queueService.playSong(queueItem, addRelated);
+      
+      // Wait for details and use them if available
+      const details = await detailsPromise;
+      if (details) {
+        console.log(`🔍 Enhanced details loaded for ${song.title}`);
+      }
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`⚡ Song loaded in ${totalTime.toFixed(2)}ms`);
+      
+    } catch (error) {
+      console.error('❌ Failed to play song:', error);
+      // Could show user notification here
+    }
+  }, []);
 
   // Playback controls
   const pauseSong = () => {
@@ -124,17 +177,22 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     setIsPlaying(true);
   };
 
-  const nextSong = () => {
+  const nextSong = useCallback(() => {
+    console.log('⏭ Fast forward to next song');
     const nextSongData = queueService.playNext();
     if (nextSongData) {
       setCurrentTimeState(0);
       setSeekTime(0);
+      // Trigger prefetch for the new upcoming songs
+      setTimeout(() => prefetchNextSongs(), 500);
     } else {
+      console.log('🔚 End of queue reached');
       setIsPlaying(false);
     }
-  };
+  }, [prefetchNextSongs]);
 
-  const previousSong = () => {
+  const previousSong = useCallback(() => {
+    console.log('⏮ Rewinding to previous song');
     // If more than 3 seconds have passed, restart current song
     if (currentTime > 3) {
       setCurrentTimeState(0);
@@ -147,7 +205,7 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
       setCurrentTimeState(0);
       setSeekTime(0);
     }
-  };
+  }, [currentTime]);
 
   // Queue management
   const addToQueue = async (song: Song, position: 'next' | 'end' = 'end') => {
@@ -214,6 +272,11 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
     setCurrentTimeState(time);
   };
 
+  // Calculate next song ID for prefetching
+  const nextSongId = useMemo(() => {
+    return queue.upcoming.length > 0 ? queue.upcoming[0].youtubeId : undefined;
+  }, [queue.upcoming]);
+
   const value: PlayerContextType = {
     // Current playback state
     currentSong: queue.current,
@@ -261,12 +324,16 @@ export const PlayerProvider: React.FC<PlayerProviderProps> = ({ children }) => {
           videoId={queue.current.youtubeId}
           isPlaying={isPlaying}
           volume={volume}
-          onReady={() => console.log('YouTube player ready')}
-          onStateChange={(state) => console.log('YouTube player state:', state)}
+          onReady={() => console.log('✅ YouTube player ready for:', queue.current?.title)}
+          onStateChange={(state) => console.log('🔄 Player state changed:', state)}
           onTimeUpdate={handleTimeUpdate}
           onDurationChange={setDuration}
           onEnd={handleSongEnd}
           seekTime={seekTime}
+          // Optimization props
+          preloadNext={nextSongId}
+          enablePreloading={prefetchEnabled}
+          bufferSize={8} // 8 seconds buffer
         />
       )}
     </PlayerContext.Provider>
