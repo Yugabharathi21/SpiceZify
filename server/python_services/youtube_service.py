@@ -611,18 +611,36 @@ def search():
                     is_verified = cached_result['is_verified']
                     mscore = cached_result['mscore']
                 else:
-                    # Use simple, fast approach - skip detailed metadata extraction for now
-                    # Focus on getting search results working first
+                    # Use fast yt-dlp extraction for basic metadata (title, duration)
                     try:
-                        # Use basic assumptions for speed
-                        title = f"Track {clean_id}"  # Will be updated with real data later
-                        duration_seconds = 210  # Assume ~3.5 minutes for music tracks
-                        channel_name = "Music Channel"
-                        channel_id = clean_id[:8]  # Use first 8 chars as fake channel ID
-                        is_verified = False
-                        mscore = 3  # Give a decent score to show results
+                        # Fast yt-dlp probe for essential metadata only
+                        ydl_opts = {
+                            "quiet": True,
+                            "skip_download": True,
+                            "no_warnings": True,
+                            "extract_flat": False,
+                            "socket_timeout": 5,
+                            "format": "worst",  # Don't extract format info for speed
+                        }
                         
-                        logger.info(f"Using fast basic data for {clean_id}")
+                        with YoutubeDL(ydl_opts) as ydl:
+                            info = ydl.extract_info(f"https://www.youtube.com/watch?v={clean_id}", download=False)
+                            
+                            # Extract essential metadata
+                            title = info.get("title", f"Track {clean_id}")
+                            duration_seconds = int(info.get("duration", 210))
+                            channel_name = info.get("uploader", "Music Channel")
+                            channel_id = info.get("channel_id", clean_id[:8])
+                            
+                            # Quick verification check
+                            badges = info.get("uploader_badges", [])
+                            is_verified = (
+                                (channel_id in OAC_ALLOWLIST) or
+                                any("official artist" in str(b).lower() or "verified" in str(b).lower() for b in badges)
+                            )
+                            mscore = 5 if is_verified else 3
+                        
+                        logger.info(f"Fast extracted metadata for {clean_id}: {title[:50]}...")
                         
                         # Cache the result using CacheManager.set() method
                         cache_data = {
@@ -637,8 +655,26 @@ def search():
                         video_cache.set(clean_id, cache_data, ttl=300)
                         
                     except Exception as e:
-                        logger.warning(f"Even basic processing failed for {clean_id}: {e}")
-                        continue
+                        logger.warning(f"Fast metadata extraction failed for {clean_id}: {e}")
+                        # Fallback to basic data
+                        title = f"Unknown Track {clean_id[-4:]}"  # Use last 4 chars for uniqueness
+                        duration_seconds = 210
+                        channel_name = "Unknown Artist"
+                        channel_id = clean_id[:8]
+                        is_verified = False
+                        mscore = 1
+                        
+                        cache_data = {
+                            'title': title,
+                            'duration': duration_seconds,
+                            'channel_name': channel_name,
+                            'channel_id': channel_id,
+                            'is_verified': is_verified,
+                            'mscore': mscore,
+                            'timestamp': time.time()
+                        }
+                        video_cache.set(clean_id, cache_data, ttl=300)
+                        logger.info(f"Using fallback data for {clean_id}")
                 
                 video_time = time.time() - video_start
                 logger.info(f"Video processed in {video_time:.2f}s")
