@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   XMarkIcon,
   PlayIcon,
@@ -14,6 +14,7 @@ import {
 } from '@heroicons/react/24/solid';
 import { HeartIcon, EllipsisHorizontalIcon } from '@heroicons/react/24/outline';
 import { HeartIcon as HeartSolid } from '@heroicons/react/24/solid';
+import LyricsDisplay from '../Lyrics/LyricsDisplay';
 
 interface Song {
   id: string;
@@ -67,6 +68,7 @@ const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
   onToggleRepeat,
   onToggleAutoplay
 }) => {
+  const [showLyrics, setShowLyrics] = useState(false);
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -116,6 +118,17 @@ const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
             </svg>
           </button>
           
+          <button
+            onClick={() => setShowLyrics(!showLyrics)}
+            className={`transition-colors duration-150 p-2 hover:bg-spotify-medium-gray ${showLyrics ? 'text-spotify-green' : 'text-spotify-text-gray hover:text-spotify-white'}`}
+            style={{ borderRadius: '3px' }}
+            title="Show Lyrics"
+          >
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+            </svg>
+          </button>
+          
           <button className="text-spotify-text-gray hover:text-spotify-white transition-colors duration-150 p-2 hover:bg-spotify-medium-gray"
                   style={{ borderRadius: '3px' }}>
             <QueueListIcon className="w-5 h-5" />
@@ -130,14 +143,18 @@ const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
 
       {/* Main Content */}
       <div className="flex-1 flex items-center justify-center px-8 py-12">
-        <div className="max-w-6xl w-full grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+        <div className={`max-w-6xl w-full grid gap-16 items-center transition-all duration-300 ${
+          showLyrics ? 'grid-cols-1 lg:grid-cols-3' : 'grid-cols-1 lg:grid-cols-2'
+        }`}>
           {/* Album Art */}
           <div className="flex justify-center">
             <div className="relative group">
               <img
                 src={song.thumbnail}
                 alt={song.title}
-                className="w-80 h-80 lg:w-96 lg:h-96 object-cover shadow-elevated transition-transform duration-300 group-hover:scale-105"
+                className={`object-cover shadow-elevated transition-all duration-300 group-hover:scale-105 ${
+                  showLyrics ? 'w-64 h-64 lg:w-72 lg:h-72' : 'w-80 h-80 lg:w-96 lg:h-96'
+                }`}
                 style={{ borderRadius: '6px' }}
               />
               <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" 
@@ -270,7 +287,7 @@ const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
               {/* Volume Control */}
               <div className="flex items-center space-x-3">
                 <button
-                  onClick={() => onVolumeChange({ target: { value: volume === 0 ? '0.7' : '0' } } as any)}
+                  onClick={() => onVolumeChange({ target: { value: volume === 0 ? '0.7' : '0' } } as React.ChangeEvent<HTMLInputElement>)}
                   className="text-spotify-text-gray hover:text-spotify-white transition-colors duration-150"
                   title={volume === 0 ? 'Unmute' : 'Mute'}
                 >
@@ -304,6 +321,29 @@ const FullScreenPlayer: React.FC<FullScreenPlayerProps> = ({
               </div>
             </div>
           </div>
+
+          {/* Lyrics Panel */}
+          {showLyrics && (
+            <div className="bg-spotify-medium-gray/30 backdrop-blur-sm border border-spotify-border/50" style={{ borderRadius: '8px' }}>
+              <div className="p-4 border-b border-spotify-border/50">
+                <h3 className="text-spotify-white font-medium text-lg flex items-center">
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+                  </svg>
+                  Lyrics
+                </h3>
+              </div>
+              <div className="overflow-hidden">
+                <LyricsDisplay
+                  artist={song.artist}
+                  title={song.title}
+                  currentTime={currentTime}
+                  duration={duration}
+                  className="text-spotify-white p-4"
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

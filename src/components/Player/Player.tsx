@@ -22,6 +22,7 @@ import { playlistService } from '../../services/playlistService';
 import FullScreenPlayer from './FullScreenPlayer';
 import QueuePanel from './QueuePanel';
 import ContextMenu from '../UI/ContextMenu';
+import LyricsDisplay from '../Lyrics/LyricsDisplay';
 
 const Player: React.FC = () => {
   const {
@@ -49,6 +50,7 @@ const Player: React.FC = () => {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  const [showLyrics, setShowLyrics] = useState(false);
   const [previousVolume, setPreviousVolume] = useState(volume);
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0 });
   const { playlists, addSongToPlaylist } = usePlaylist();
@@ -385,6 +387,16 @@ const Player: React.FC = () => {
             </svg>
           </button>
           
+          <button
+            onClick={() => setShowLyrics(!showLyrics)}
+            className={`transition-colors duration-150 ${showLyrics ? 'text-spotify-green' : 'text-spotify-text-gray hover:text-spotify-white'}`}
+            title="Show Lyrics"
+          >
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+            </svg>
+          </button>
+          
           <div className="relative">
             <button
               onClick={() => setShowQueue(!showQueue)}
@@ -473,6 +485,37 @@ const Player: React.FC = () => {
           onToggleRepeat={toggleRepeat}
           onToggleAutoplay={toggleAutoplay}
         />
+      )}
+
+      {/* Lyrics Panel */}
+      {showLyrics && (
+        <div className="fixed bottom-20 right-4 w-80 md:w-96 bg-spotify-dark-gray/95 backdrop-blur-md border border-spotify-border/70 shadow-2xl z-40 animate-in slide-in-from-right-5 duration-300" style={{ borderRadius: '12px' }}>
+          <div className="flex items-center justify-between p-4 border-b border-spotify-border/50">
+            <h3 className="text-spotify-white font-medium text-base flex items-center">
+              <svg className="w-4 h-4 mr-2 text-spotify-green" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M14,2H6A2,2 0 0,0 4,4V20A2,2 0 0,0 6,22H18A2,2 0 0,0 20,20V8L14,2M18,20H6V4H13V9H18V20Z" />
+              </svg>
+              Lyrics
+            </h3>
+            <button
+              onClick={() => setShowLyrics(false)}
+              className="text-spotify-text-gray hover:text-spotify-white transition-all duration-150 p-1.5 hover:bg-spotify-medium-gray/50 rounded-md"
+            >
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+          <div className="overflow-hidden">
+            <LyricsDisplay
+              artist={currentSong.artist}
+              title={currentSong.title}
+              currentTime={currentTime}
+              duration={duration}
+              className="text-sm p-4"
+            />
+          </div>
+        </div>
       )}
     </>
   );

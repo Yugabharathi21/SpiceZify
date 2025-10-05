@@ -5,7 +5,7 @@ const YOUTUBE_SERVICE_BASE_URL = 'http://localhost:5001/api/youtube';
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 const PREFETCH_COUNT = 5; // Number of songs to prefetch
 const MAX_CONCURRENT_REQUESTS = 3; // Limit concurrent requests
-const REQUEST_TIMEOUT = 60000; // 60 seconds timeout (Python service can be slow)
+const REQUEST_TIMEOUT = 120000; // 120 seconds timeout (YouTube search can be very slow)
 
 export interface YouTubeVideo {
   id: string;
@@ -19,6 +19,21 @@ export interface YouTubeVideo {
   streamUrl?: string;
   isVerified?: boolean;
   cachedAt?: number;
+}
+
+export interface LyricsData {
+  artist: string;
+  title: string;
+  album?: string;
+  duration?: number;
+  plainLyrics?: string;
+  syncedLyrics?: string;
+  source: 'LRCLIB';
+}
+
+export interface LyricsLine {
+  time: number; // Time in seconds
+  text: string;
 }
 
 interface YouTubeSearchResult {
@@ -39,6 +54,7 @@ class CacheManager {
   private static searchCache = new Map<string, { data: YouTubeVideo[]; timestamp: number }>();
   private static detailsCache = new Map<string, { data: YouTubeVideo; timestamp: number }>();
   private static relatedCache = new Map<string, { data: YouTubeVideo[]; timestamp: number }>();
+  private static lyricsCache = new Map<string, { data: LyricsData | null; timestamp: number }>();
   
   static getSearch(query: string, maxResults: number): YouTubeVideo[] | null {
     const key = `${query}:${maxResults}`;
@@ -48,6 +64,24 @@ class CacheManager {
       return cached.data;
     }
     return null;
+  }
+
+  static getLyrics(artist: string, title: string): LyricsData | null | undefined {
+    const key = `${artist.toLowerCase()}:${title.toLowerCase()}`;
+    const cached = this.lyricsCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+      console.log(`🎯 Lyrics cache hit for: "${title}" by "${artist}"`);
+      return cached.data;
+    }
+    return undefined; // undefined means not cached, null means not found
+  }
+
+  static setLyrics(artist: string, title: string, lyrics: LyricsData | null): void {
+    const key = `${artist.toLowerCase()}:${title.toLowerCase()}`;
+    this.lyricsCache.set(key, {
+      data: lyrics,
+      timestamp: Date.now()
+    });
   }
   
   static setSearch(query: string, maxResults: number, data: YouTubeVideo[]): void {
@@ -186,7 +220,13 @@ export class YouTubeService {
         console.log(`📡 [Frontend] Fetching: ${searchUrl}`);
         const fetchStart = performance.now();
         
+        // Show progress indicator for long searches
+        const progressTimer = setTimeout(() => {
+          console.log(`⏳ [Frontend] Search still running... (${((performance.now() - startTime) / 1000).toFixed(1)}s elapsed)`);
+        }, 10000);
+        
         const response = await optimizedFetch(searchUrl);
+        clearTimeout(progressTimer);
         
         const fetchTime = performance.now() - fetchStart;
         console.log(`⏱️ [Frontend] Fetch completed in ${fetchTime.toFixed(2)}ms, status: ${response.status}`);
@@ -242,8 +282,16 @@ export class YouTubeService {
         return results;
       } catch (error) {
         const totalTime = performance.now() - startTime;
-        console.error(`❌ [Frontend] Search failed in ${totalTime.toFixed(2)}ms:`, error);
-        console.error('Make sure the Python YouTube service is running on port 5001');
+        
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.error(`⏱️ [Frontend] Search timed out after ${totalTime.toFixed(2)}ms (${REQUEST_TIMEOUT/1000}s limit)`);
+          console.error('📡 The Python service is running but search is taking too long.');
+          console.error('💡 Consider optimizing search queries or increasing timeout.');
+        } else {
+          console.error(`❌ [Frontend] Search failed in ${totalTime.toFixed(2)}ms:`, error);
+          console.error('🔧 Make sure the Python YouTube service is running on port 5001');
+        }
+        
         const mockResults = this.getMockResults(query, maxResults);
         CacheManager.setSearch(query, maxResults, mockResults);
         return mockResults;
@@ -251,6 +299,111 @@ export class YouTubeService {
     });
   }
   
+  // Fetch lyrics from LRCLIB API
+  static async fetchLyrics(artist: string, title: string, album?: string, duration?: number): Promise<LyricsData | null> {
+    const startTime = performance.now();
+    console.log(`🎵 [Lyrics] Fetching lyrics for: "${title}" by "${artist}"`);
+    
+    // Check cache first
+    const cached = CacheManager.getLyrics(artist, title);
+    if (cached !== undefined) {
+      const cacheTime = performance.now() - startTime;
+      console.log(`⚡ [Lyrics] Cache result in ${cacheTime.toFixed(2)}ms:`, cached ? 'Found' : 'Not found');
+      return cached;
+    }
+    
+    try {
+      const params = new URLSearchParams({
+        artist: artist.trim(),
+        title: title.trim()
+      });
+      
+      if (album?.trim()) {
+        params.append('album', album.trim());
+      }
+      
+      if (duration) {
+        params.append('duration', duration.toString());
+      }
+      
+      const lyricsUrl = `${YOUTUBE_SERVICE_BASE_URL.replace('/youtube', '')}/lyrics?${params}`;
+      console.log(`📡 [Lyrics] Fetching: ${lyricsUrl}`);
+      
+      const response = await optimizedFetch(lyricsUrl);
+      const fetchTime = performance.now() - startTime;
+      
+      if (response.ok) {
+        const lyricsData: LyricsData = await response.json();
+        console.log(`✅ [Lyrics] Found lyrics in ${fetchTime.toFixed(2)}ms:`, {
+          synced: !!lyricsData.syncedLyrics,
+          plain: !!lyricsData.plainLyrics
+        });
+        
+        CacheManager.setLyrics(artist, title, lyricsData);
+        return lyricsData;
+      } else if (response.status === 404) {
+        console.log(`❌ [Lyrics] No lyrics found in ${fetchTime.toFixed(2)}ms`);
+        CacheManager.setLyrics(artist, title, null);
+        return null;
+      } else {
+        console.error(`⚠️ [Lyrics] API error ${response.status} in ${fetchTime.toFixed(2)}ms`);
+        return null;
+      }
+    } catch (error) {
+      const totalTime = performance.now() - startTime;
+      console.error(`❌ [Lyrics] Fetch failed in ${totalTime.toFixed(2)}ms:`, error);
+      return null;
+    }
+  }
+  
+  // Parse LRC format to timestamped lines
+  static parseLRC(lrcContent: string): LyricsLine[] {
+    if (!lrcContent?.trim()) return [];
+    
+    const lines: LyricsLine[] = [];
+    const lrcLines = lrcContent.split('\n');
+    
+    for (const line of lrcLines) {
+      // Match LRC timestamp format: [mm:ss.xx] or [mm:ss]
+      const match = line.match(/^\[(\d{1,2}):(\d{2})(?:\.(\d{2,3}))?\](.*)$/);
+      if (match) {
+        const minutes = parseInt(match[1], 10);
+        const seconds = parseInt(match[2], 10);
+        const centiseconds = match[3] ? parseInt(match[3].padEnd(3, '0'), 10) : 0;
+        const text = match[4].trim();
+        
+        if (text) { // Skip empty lines
+          const timeInSeconds = minutes * 60 + seconds + centiseconds / 1000;
+          lines.push({ time: timeInSeconds, text });
+        }
+      }
+    }
+    
+    // Sort by time
+    return lines.sort((a, b) => a.time - b.time);
+  }
+  
+  // Get current lyric line based on playback time
+  static getCurrentLyricLine(lyricsLines: LyricsLine[], currentTime: number): { current?: LyricsLine; next?: LyricsLine; index: number } {
+    if (!lyricsLines.length) return { index: -1 };
+    
+    let currentIndex = -1;
+    
+    for (let i = 0; i < lyricsLines.length; i++) {
+      if (lyricsLines[i].time <= currentTime) {
+        currentIndex = i;
+      } else {
+        break;
+      }
+    }
+    
+    return {
+      current: currentIndex >= 0 ? lyricsLines[currentIndex] : undefined,
+      next: currentIndex + 1 < lyricsLines.length ? lyricsLines[currentIndex + 1] : undefined,
+      index: currentIndex
+    };
+  }
+
   // Prefetch audio URLs to speed up playback
   private static async prefetchAudioUrls(videos: YouTubeVideo[]): Promise<void> {
     console.log(`🚀 Prefetching audio URLs for ${videos.length} videos`);

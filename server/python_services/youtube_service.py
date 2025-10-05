@@ -545,57 +545,44 @@ def search():
             response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
             return response
         
-        # === NEW discovery block: try YT Music first, then aiotube ===
+        # === FAST discovery: Use aiotube (returns just video IDs) ===
         ids = []
+        
         try:
-            logger.info("YTMusic discovery...")
+            logger.info("Fast aiotube discovery...")
             search_start = time.time()
-            ids = ytmusic_discover(search_query, limit=min(max_results, 20))
+            videos = aiotube.Search.videos(search_query, limit=max_results)
+            
+            # aiotube.Search.videos() returns video ID strings directly
+            for vid_id in videos:
+                cid = extract_video_id(vid_id)
+                if cid:
+                    ids.append(cid)
+            
             search_time = time.time() - search_start
-            logger.info(f"YTMusic returned {len(ids)} ids in {search_time:.2f}s")
+            logger.info(f"aiotube returned {len(ids)} videos in {search_time:.2f}s")
         except Exception as e:
-            logger.warning(f"YTMusic discover failed: {e}")
+            logger.error(f"aiotube search failed: {e}")
+            return jsonify({"error": "search failed", "details": str(e)}), 500
         
-        # Fallback / supplement with aiotube to reach max_results
-        if len(ids) < max_results:
-            try:
-                logger.info("aiotube supplement...")
-                more = aiotube.Search.videos(search_query, limit=min(max_results*2, 20))
-                
-                # Clean + dedupe
-                more_ids = []
-                seen = set(ids)
-                for vid in more:
-                    cid = extract_video_id(vid)
-                    if cid and cid not in seen:
-                        seen.add(cid)
-                        more_ids.append(cid)
-                
-                ids.extend(more_ids)
-                logger.info(f"aiotube added {len(more_ids)} ids (total {len(ids)})")
-            except Exception as e:
-                logger.error(f"aiotube search failed: {e}")
-                if not ids:  # If both failed
-                    return jsonify({"error": "search failed", "details": str(e)}), 500
+        if not ids:
+            return jsonify({"error": "no results found"}), 404
         
-        # Trim to a small overscan to allow filtering, then we'll rank
-        ids = ids[:max_results * 2]  # overscan to survive filters
-        logger.info(f"Processing {len(ids)} candidate videos")
+        logger.info(f"Processing {len(ids)} videos (fast mode - will fetch metadata via yt-dlp or cache)")
         
-        # Process videos with hard yt-dlp filtering
+        # Process videos sequentially for reliability
         results = []
         processing_start = time.time()
         rejected_reasons = {}
         
-        for i, vid in enumerate(ids):
+        for i, clean_id in enumerate(ids):
             try:
                 video_start = time.time()
-                logger.info(f"Processing video {i+1}/{len(ids)}: {vid}")
+                logger.info(f"Processing video: {clean_id}")
                 
-                # Clean the video ID first
-                clean_id = extract_video_id(vid)
+                # IDs are already cleaned from the discovery phase
                 if not clean_id:
-                    logger.warning(f"Invalid video ID: {vid}")
+                    logger.warning(f"Invalid video ID: {clean_id}")
                     continue
                 
                 # Probe using yt-dlp for hard guarantees (no Shorts/live/etc.)
@@ -611,70 +598,41 @@ def search():
                     is_verified = cached_result['is_verified']
                     mscore = cached_result['mscore']
                 else:
-                    # Use fast yt-dlp extraction for basic metadata (title, duration)
+                    # Use yt-dlp to fetch metadata (fast with connection pooling)
+                    logger.info(f"Fetching metadata via yt-dlp for {clean_id}")
                     try:
-                        # Fast yt-dlp probe for essential metadata only
                         ydl_opts = {
-                            "quiet": True,
-                            "skip_download": True,
-                            "no_warnings": True,
-                            "extract_flat": False,
-                            "socket_timeout": 5,
-                            "format": "worst",  # Don't extract format info for speed
+                            'quiet': True,
+                            'no_warnings': True,
+                            'extract_flat': False,
+                            'skip_download': True
                         }
-                        
                         with YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(f"https://www.youtube.com/watch?v={clean_id}", download=False)
-                            
-                            # Extract essential metadata
-                            title = info.get("title", f"Track {clean_id}")
-                            duration_seconds = int(info.get("duration", 210))
-                            channel_name = info.get("uploader", "Music Channel")
-                            channel_id = info.get("channel_id", clean_id[:8])
-                            
-                            # Quick verification check
-                            badges = info.get("uploader_badges", [])
-                            is_verified = (
-                                (channel_id in OAC_ALLOWLIST) or
-                                any("official artist" in str(b).lower() or "verified" in str(b).lower() for b in badges)
-                            )
-                            mscore = 5 if is_verified else 3
-                        
-                        logger.info(f"Fast extracted metadata for {clean_id}: {title[:50]}...")
-                        
-                        # Cache the result using CacheManager.set() method
-                        cache_data = {
-                            'title': title,
-                            'duration': duration_seconds,
-                            'channel_name': channel_name,
-                            'channel_id': channel_id,
-                            'is_verified': is_verified,
-                            'mscore': mscore,
-                            'timestamp': time.time()
-                        }
-                        video_cache.set(clean_id, cache_data, ttl=300)
-                        
+                            info = ydl.extract_info(f'https://www.youtube.com/watch?v={clean_id}', download=False)
+                            title = info.get('title', f'Track {clean_id[-8:]}')
+                            duration_seconds = info.get('duration', 180)
+                            channel_name = info.get('channel', info.get('uploader', 'Music Channel'))
                     except Exception as e:
-                        logger.warning(f"Fast metadata extraction failed for {clean_id}: {e}")
-                        # Fallback to basic data
-                        title = f"Unknown Track {clean_id[-4:]}"  # Use last 4 chars for uniqueness
-                        duration_seconds = 210
-                        channel_name = "Unknown Artist"
-                        channel_id = clean_id[:8]
-                        is_verified = False
-                        mscore = 1
-                        
-                        cache_data = {
-                            'title': title,
-                            'duration': duration_seconds,
-                            'channel_name': channel_name,
-                            'channel_id': channel_id,
-                            'is_verified': is_verified,
-                            'mscore': mscore,
-                            'timestamp': time.time()
-                        }
-                        video_cache.set(clean_id, cache_data, ttl=300)
-                        logger.info(f"Using fallback data for {clean_id}")
+                        logger.warning(f"yt-dlp metadata fetch failed for {clean_id}: {e}")
+                        title = f"Track {clean_id[-8:]}"
+                        duration_seconds = 180
+                        channel_name = "Music Channel"
+                    
+                    channel_id = clean_id[:8]
+                    is_verified = False
+                    mscore = 3  # Default score
+                    
+                    # Cache the result
+                    cache_data = {
+                        'title': title,
+                        'duration': duration_seconds,
+                        'channel_name': channel_name,
+                        'channel_id': channel_id,
+                        'is_verified': is_verified,
+                        'mscore': mscore,
+                        'timestamp': time.time()
+                    }
+                    video_cache.set(clean_id, cache_data, ttl=300)
                 
                 video_time = time.time() - video_start
                 logger.info(f"Video processed in {video_time:.2f}s")
@@ -686,7 +644,7 @@ def search():
                 # Get thumbnail URL
                 thumbnail_url = f"https://img.youtube.com/vi/{clean_id}/mqdefault.jpg"
                 
-                results.append({
+                result = {
                     "id": clean_id,
                     "title": title_info["title"],
                     "artist": title_info["artist"] or channel_name,
@@ -700,16 +658,17 @@ def search():
                     "isVerified": is_verified,
                     "musicScore": mscore,
                     "streamUrl": f"/api/youtube/audio/{clean_id}"
-                })
+                }
                 
-                logger.info(f"Accepted: {title_info['title']} by {title_info['artist']} (score: {mscore})")
+                results.append(result)
+                logger.info(f"Accepted: {result['title']} by {result['artist']} (score: {result['musicScore']})")
                 
                 # Stop if we have enough good results
                 if len(results) >= max_results:
                     break
-                    
+                
             except Exception as e:
-                logger.error(f"Error processing video {vid}: {str(e)}")
+                logger.error(f"Error processing video {i+1}/{len(ids)}: {clean_id}: {str(e)}")
                 continue
         
         processing_time = time.time() - processing_start
@@ -1059,15 +1018,114 @@ def get_related_videos(video_id):
         logger.error(f"Error finding related videos for {video_id}: {str(e)}")
         return jsonify({"error": f"Could not find related videos: {str(e)}"}), 500
 
+# Lyrics endpoint using LRCLIB
+@app.route("/api/lyrics", methods=['GET', 'OPTIONS'])
+def get_lyrics():
+    """Fetch lyrics from LRCLIB - free, open, and perfect for educational use"""
+    # Handle OPTIONS request for CORS
+    if request.method == 'OPTIONS':
+        response = Response()
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,OPTIONS')
+        return response
+    
+    artist = request.args.get("artist")
+    title = request.args.get("title")
+    album = request.args.get("album")
+    duration = request.args.get("duration")  # in seconds
+    
+    logger.info(f"Lyrics request: '{title}' by '{artist}'")
+    
+    if not artist or not title:
+        response = jsonify({"error": "Missing artist or title"})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 400
+
+    try:
+        # LRCLIB API endpoint
+        base_url = "https://lrclib.net/api/get"
+        params = {
+            "artist_name": artist.strip(),
+            "track_name": title.strip()
+        }
+        
+        # Optional parameters for better matching
+        if album and album.strip():
+            params["album_name"] = album.strip()
+        if duration:
+            try:
+                params["duration"] = int(float(duration))
+            except (ValueError, TypeError):
+                pass
+        
+        logger.info(f"Fetching lyrics from LRCLIB: {params}")
+        
+        # Make request to LRCLIB
+        response = request_manager.get(base_url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            lyrics_data = {
+                "artist": artist,
+                "title": title,
+                "album": data.get("albumName"),
+                "duration": data.get("duration"),
+                "plainLyrics": data.get("plainLyrics"),
+                "syncedLyrics": data.get("syncedLyrics"),
+                "source": "LRCLIB"
+            }
+            
+            # Log success
+            has_synced = bool(data.get("syncedLyrics"))
+            has_plain = bool(data.get("plainLyrics"))
+            logger.info(f"Lyrics found: synced={has_synced}, plain={has_plain}")
+            
+            response = jsonify(lyrics_data)
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Accept')
+            return response
+            
+        elif response.status_code == 404:
+            logger.info(f"No lyrics found for '{title}' by '{artist}'")
+            response = jsonify({
+                "error": "Lyrics not found",
+                "artist": artist,
+                "title": title,
+                "source": "LRCLIB"
+            })
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 404
+            
+        else:
+            logger.warning(f"LRCLIB API error: {response.status_code}")
+            response = jsonify({"error": f"LRCLIB API error: {response.status_code}"})
+            response.headers.add('Access-Control-Allow-Origin', '*')
+            return response, 502
+
+    except requests.exceptions.Timeout:
+        logger.error("LRCLIB request timeout")
+        response = jsonify({"error": "Lyrics service timeout"})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 504
+        
+    except Exception as e:
+        logger.error(f"Lyrics fetch failed: {str(e)}")
+        response = jsonify({"error": f"Lyrics fetch failed: {str(e)}"})
+        response.headers.add('Access-Control-Allow-Origin', '*')
+        return response, 500
+
 # Health check endpoint
 @app.route("/api/youtube/health")
 def health():
     return jsonify({
         "status": "ok",
         "service": "SpiceZify YouTube Service",
-        "version": "2.0-optimized-music-first",
+        "version": "2.0-optimized-music-first-lyrics",
         "cache_status": "active",
-        "uptime": round(time.time() - start_time, 2)
+        "uptime": round(time.time() - start_time, 2),
+        "features": ["ytmusicapi", "yt-dlp", "lrclib-lyrics"]
     })
 
 # Track service start time

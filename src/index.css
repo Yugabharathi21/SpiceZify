@@ -67,6 +67,30 @@
     @apply bg-spotify-light-gray;
   }
 
+  /* Lyrics scrollbar - thinner and more subtle */
+  .lyrics-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .lyrics-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .lyrics-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-spotify-text-gray/30;
+    border-radius: 2px;
+  }
+  
+  .lyrics-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-spotify-text-gray/50;
+  }
+
+  /* Hide scrollbar for Firefox */
+  .lyrics-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+  }
+
   /* Button styles */
   .btn-primary {
     @apply bg-spotify-green text-spotify-black font-medium px-6 py-2 transition-all duration-150;
@@ -125,6 +149,26 @@ input:focus {
 
 .pulse-geometric {
   animation: pulse-geometric 2s ease-in-out infinite;
+}
+
+/* Slide in animations for lyrics panel */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-in {
+  animation-fill-mode: both;
+}
+
+.slide-in-from-right-5 {
+  animation: slide-in-from-right 0.3s ease-out;
 }
 
 /* Loading skeleton with geometric design */
