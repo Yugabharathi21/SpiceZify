@@ -1,4 +1,5 @@
 import io
+import os
 import re
 import requests
 from flask import Flask, request, jsonify, Response, stream_with_context
@@ -28,8 +29,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)  # Enable CORS for React frontend
 
-# Simple video metadata cache to avoid re-processing
-video_cache = {}
+# Simple cache lock for legacy compatibility
 cache_lock = Lock()
 
 # Connection pooling and request optimization
@@ -92,6 +92,10 @@ request_manager = RequestManager(max_workers=20, timeout=15)
 ytm = YTMusic()  # anonymous headers ok
 MIN_TRACK_SECS = 75  # below this, likely Shorts/preview
 MAX_TRACK_SECS = 600  # above this, likely not a single track
+
+# Concurrency knobs
+DEFAULT_SEARCH_WORKERS = int(os.getenv("SEARCH_WORKERS", "8"))
+PER_VIDEO_TIMEOUT_SEC = 10  # per-item safety timeout
 BAD_TITLE_RE = re.compile(r"(reaction|review|tutorial|gameplay|vlog|unboxing|cooking|podcast|compilation|mix(?! ?tape)|playlist|sped up|nightcore|slowed|shorts?)", re.I)
 DROP_WORDS = ("live", "cover", "sped up", "nightcore", "slowed", "short", "8d", "lyrics video", "audio spectrum")
 GOOD_WORDS = ("official", "audio", "music", "video")
@@ -209,7 +213,7 @@ class CacheManager:
 # Initialize cache managers
 search_cache = CacheManager(max_size=500, default_ttl=300)  # 5 minutes
 related_cache = CacheManager(max_size=200, default_ttl=600)  # 10 minutes
-video_cache = CacheManager(max_size=1000, default_ttl=1800)  # 30 minutes
+video_meta_cache = CacheManager(max_size=1000, default_ttl=1800)  # 30 minutes
 CACHE_DURATION = 300  # Legacy variable for compatibility
 
 # Music-related keywords for filtering
@@ -501,6 +505,96 @@ def parse_title(full_title):
     # Fallback: use full title as song name
     return {"title": clean_title, "artist": ""}
 
+def process_video_id(clean_id: str, enforce_verified_only: bool) -> Optional[dict]:
+    """
+    Worker: probe + filter + shape one video item.
+    Returns shaped result dict or None if rejected/failed.
+    """
+    try:
+        logger.debug(f"[worker] Processing {clean_id}")
+        
+        # Fast cache lookup first
+        cached_result = video_meta_cache.get(clean_id)
+        if cached_result and time.time() - cached_result['timestamp'] < 300:
+            logger.debug(f"[worker] Using cached data for {clean_id}")
+            title = cached_result['title']
+            duration_seconds = cached_result['duration']
+            channel_name = cached_result['channel_name']
+            channel_id = cached_result['channel_id']
+            is_verified = cached_result['is_verified']
+            mscore = cached_result['mscore']
+        else:
+            # Real probe with timeout protection
+            logger.debug(f"[worker] Probing {clean_id} with yt-dlp")
+            try:
+                probe = probe_with_ytdlp(clean_id)
+                info = probe["info"]
+                flags = probe["flags"]
+
+                keep, reason = hard_keep(flags)
+                if enforce_verified_only and not flags["verified"]:
+                    keep, reason = False, "not-verified"
+
+                if not keep:
+                    logger.debug(f"[worker] Rejected {clean_id}: {reason}")
+                    return None
+
+                title = info.get("title", f"Track {clean_id}")
+                duration_seconds = int(info.get("duration", 210))
+                channel_name = info.get("uploader", "Music Channel")
+                channel_id = flags.get("channel_id") or info.get("channel_id") or clean_id[:8]
+                is_verified = flags["verified"]
+                mscore = music_score(flags)
+
+                # Cache the successful probe
+                video_meta_cache.set(clean_id, {
+                    'title': title,
+                    'duration': duration_seconds,
+                    'channel_name': channel_name,
+                    'channel_id': channel_id,
+                    'is_verified': is_verified,
+                    'mscore': mscore,
+                    'timestamp': time.time()
+                }, ttl=300)
+                
+            except Exception as probe_error:
+                logger.warning(f"[worker] Probe failed for {clean_id}: {probe_error}")
+                # Use fallback data instead of failing completely
+                title = f"Unknown Track {clean_id[-4:]}"
+                duration_seconds = 210
+                channel_name = "Unknown Artist"
+                channel_id = clean_id[:8]
+                is_verified = False
+                mscore = 1
+
+        # Build the result object
+        title_info = parse_title(title)
+        duration_formatted = format_duration(duration_seconds)
+        thumbnail_url = f"https://img.youtube.com/vi/{clean_id}/mqdefault.jpg"
+
+        result = {
+            "id": clean_id,
+            "title": title_info["title"],
+            "artist": title_info["artist"] or channel_name,
+            "thumbnail": thumbnail_url,
+            "duration": duration_formatted,
+            "youtubeId": clean_id,
+            "channelTitle": channel_name,
+            "publishedAt": "",
+            "view_count": "",
+            "embeddable": True,
+            "isVerified": is_verified,
+            "musicScore": mscore,
+            "streamUrl": f"/api/youtube/audio/{clean_id}"
+        }
+        
+        logger.debug(f"[worker] Success for {clean_id}: {title_info['title'][:30]}...")
+        return result
+
+    except Exception as e:
+        logger.error(f"[worker] Critical failure for {clean_id}: {e}")
+        return None
+
 # Optimized search endpoint for SpiceZify
 @app.route("/api/youtube/search", methods=['GET', 'OPTIONS'])
 def search():
@@ -516,6 +610,7 @@ def search():
     q = request.args.get("q", "")
     max_results = int(request.args.get("maxResults", 20))
     verified_only = request.args.get("verifiedOnly", "false").lower() == "true"
+    enforce_verified_only_local = verified_only  # avoid global races
     
     logger.info(f"Search request: '{q}' (maxResults: {max_results}, verifiedOnly: {verified_only})")
     
@@ -523,12 +618,6 @@ def search():
         response = jsonify({"error": "missing query"})
         response.headers.add('Access-Control-Allow-Origin', '*')
         return response, 400
-    
-    # Temporarily set verified-only mode if requested
-    global ENFORCE_VERIFIED_ONLY
-    original_verified_only = ENFORCE_VERIFIED_ONLY
-    if verified_only:
-        ENFORCE_VERIFIED_ONLY = True
     
     try:
         # Add music context to search
@@ -578,139 +667,55 @@ def search():
                 if not ids:  # If both failed
                     return jsonify({"error": "search failed", "details": str(e)}), 500
         
-        # Trim to a small overscan to allow filtering, then we'll rank
-        ids = ids[:max_results * 2]  # overscan to survive filters
-        logger.info(f"Processing {len(ids)} candidate videos")
+        # Trim to overscan then parallel process
+        ids = ids[:max_results * 2]
+        logger.info(f"Processing {len(ids)} candidate videos in parallel")
         
-        # Process videos with hard yt-dlp filtering
         results = []
         processing_start = time.time()
-        rejected_reasons = {}
         
-        for i, vid in enumerate(ids):
-            try:
-                video_start = time.time()
-                logger.info(f"Processing video {i+1}/{len(ids)}: {vid}")
-                
-                # Clean the video ID first
+        # Worker pool size: query ?workers=12 overrides, else env/default 8
+        workers = int(request.args.get("workers", DEFAULT_SEARCH_WORKERS))
+        logger.info(f"Using {workers} parallel workers")
+        
+        # Submit all, collect until we have enough, then cancel rest
+        futures = {}
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            for vid in ids:
                 clean_id = extract_video_id(vid)
                 if not clean_id:
-                    logger.warning(f"Invalid video ID: {vid}")
                     continue
-                
-                # Probe using yt-dlp for hard guarantees (no Shorts/live/etc.)
-                # Check cache first using CacheManager.get() method  
-                cached_result = video_cache.get(clean_id)
-                
-                if cached_result and time.time() - cached_result['timestamp'] < 300:  # 5 min cache
-                    logger.info(f"Using cached data for {clean_id}")
-                    title = cached_result['title']
-                    duration_seconds = cached_result['duration']
-                    channel_name = cached_result['channel_name']
-                    channel_id = cached_result['channel_id']
-                    is_verified = cached_result['is_verified']
-                    mscore = cached_result['mscore']
-                else:
-                    # Use fast yt-dlp extraction for basic metadata (title, duration)
+                futures[ex.submit(process_video_id, clean_id, enforce_verified_only_local)] = clean_id
+
+            # Use a longer timeout for as_completed and handle the timeout gracefully
+            timeout_seconds = max(60, len(futures) * 5)  # Give enough time for all workers
+            
+            try:
+                for fut in as_completed(futures, timeout=timeout_seconds):
                     try:
-                        # Fast yt-dlp probe for essential metadata only
-                        ydl_opts = {
-                            "quiet": True,
-                            "skip_download": True,
-                            "no_warnings": True,
-                            "extract_flat": False,
-                            "socket_timeout": 5,
-                            "format": "worst",  # Don't extract format info for speed
-                        }
-                        
-                        with YoutubeDL(ydl_opts) as ydl:
-                            info = ydl.extract_info(f"https://www.youtube.com/watch?v={clean_id}", download=False)
-                            
-                            # Extract essential metadata
-                            title = info.get("title", f"Track {clean_id}")
-                            duration_seconds = int(info.get("duration", 210))
-                            channel_name = info.get("uploader", "Music Channel")
-                            channel_id = info.get("channel_id", clean_id[:8])
-                            
-                            # Quick verification check
-                            badges = info.get("uploader_badges", [])
-                            is_verified = (
-                                (channel_id in OAC_ALLOWLIST) or
-                                any("official artist" in str(b).lower() or "verified" in str(b).lower() for b in badges)
-                            )
-                            mscore = 5 if is_verified else 3
-                        
-                        logger.info(f"Fast extracted metadata for {clean_id}: {title[:50]}...")
-                        
-                        # Cache the result using CacheManager.set() method
-                        cache_data = {
-                            'title': title,
-                            'duration': duration_seconds,
-                            'channel_name': channel_name,
-                            'channel_id': channel_id,
-                            'is_verified': is_verified,
-                            'mscore': mscore,
-                            'timestamp': time.time()
-                        }
-                        video_cache.set(clean_id, cache_data, ttl=300)
-                        
+                        item = fut.result(timeout=PER_VIDEO_TIMEOUT_SEC)
+                        if item:
+                            results.append(item)
+                            logger.info(f"Added result: {item['title'][:30]}... (total: {len(results)})")
+                            if len(results) >= max_results:
+                                # Cancel remaining futures to save time
+                                remaining = sum(1 for f in futures if not f.done())
+                                if remaining > 0:
+                                    logger.info(f"Cancelling {remaining} remaining futures")
+                                    for leftover in futures:
+                                        if not leftover.done():
+                                            leftover.cancel()
+                                break
                     except Exception as e:
-                        logger.warning(f"Fast metadata extraction failed for {clean_id}: {e}")
-                        # Fallback to basic data
-                        title = f"Unknown Track {clean_id[-4:]}"  # Use last 4 chars for uniqueness
-                        duration_seconds = 210
-                        channel_name = "Unknown Artist"
-                        channel_id = clean_id[:8]
-                        is_verified = False
-                        mscore = 1
+                        logger.debug(f"Individual future failed: {e}")
                         
-                        cache_data = {
-                            'title': title,
-                            'duration': duration_seconds,
-                            'channel_name': channel_name,
-                            'channel_id': channel_id,
-                            'is_verified': is_verified,
-                            'mscore': mscore,
-                            'timestamp': time.time()
-                        }
-                        video_cache.set(clean_id, cache_data, ttl=300)
-                        logger.info(f"Using fallback data for {clean_id}")
-                
-                video_time = time.time() - video_start
-                logger.info(f"Video processed in {video_time:.2f}s")
-                
-                # Parse title to get artist and song name
-                title_info = parse_title(title)
-                duration_formatted = format_duration(duration_seconds)
-                
-                # Get thumbnail URL
-                thumbnail_url = f"https://img.youtube.com/vi/{clean_id}/mqdefault.jpg"
-                
-                results.append({
-                    "id": clean_id,
-                    "title": title_info["title"],
-                    "artist": title_info["artist"] or channel_name,
-                    "thumbnail": thumbnail_url,
-                    "duration": duration_formatted,
-                    "youtubeId": clean_id,
-                    "channelTitle": channel_name,
-                    "publishedAt": "",  # Could get from info if needed
-                    "view_count": "",  # Could get from info if needed
-                    "embeddable": True,  # already checked in probe
-                    "isVerified": is_verified,
-                    "musicScore": mscore,
-                    "streamUrl": f"/api/youtube/audio/{clean_id}"
-                })
-                
-                logger.info(f"Accepted: {title_info['title']} by {title_info['artist']} (score: {mscore})")
-                
-                # Stop if we have enough good results
-                if len(results) >= max_results:
-                    break
-                    
-            except Exception as e:
-                logger.error(f"Error processing video {vid}: {str(e)}")
-                continue
+            except TimeoutError:
+                # If we timeout, just use whatever results we have so far
+                logger.warning(f"ThreadPool timeout after {timeout_seconds}s, using {len(results)} results")
+                # Cancel any remaining futures
+                for fut in futures:
+                    if not fut.done():
+                        fut.cancel()
         
         processing_time = time.time() - processing_start
         
@@ -721,10 +726,6 @@ def search():
         verified_count = sum(1 for r in results if r.get("isVerified", False))
         logger.info(f"Found {verified_count} verified artist tracks out of {len(results)} total")
         
-        if rejected_reasons:
-            reject_summary = ", ".join(f"{reason}: {count}" for reason, count in rejected_reasons.items())
-            logger.info(f"Rejected candidates: {reject_summary}")
-        
         total_time = time.time() - start_time
         logger.info(f"Search completed: {len(results)} results in {total_time:.2f}s (processing: {processing_time:.2f}s)")
         
@@ -734,7 +735,7 @@ def search():
             "results": results,
             "count": len(results),
             "verified_count": verified_count,
-            "filtering_stats": rejected_reasons,
+            "filtering_stats": {},
             "performance": {
                 "total_time": round(total_time, 2),
                 "processing_time": round(processing_time, 2),
@@ -745,9 +746,6 @@ def search():
         search_cache.set(cache_key, response_data, ttl=300)
         logger.info(f"Cached data for key: {cache_key[:50]}... (expires in 300s)")
         
-        # Restore original verified-only setting
-        ENFORCE_VERIFIED_ONLY = original_verified_only
-        
         # Create response with CORS headers
         response = jsonify(response_data)
         response.headers.add('Access-Control-Allow-Origin', '*')
@@ -755,8 +753,6 @@ def search():
         return response
         
     except Exception as e:
-        # Always restore verified-only setting even on error
-        ENFORCE_VERIFIED_ONLY = original_verified_only
         logger.error(f"Search failed with error: {str(e)}")
         response = jsonify({"error": "search failed", "details": str(e)})
         response.headers.add('Access-Control-Allow-Origin', '*')
