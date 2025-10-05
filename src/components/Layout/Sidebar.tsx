@@ -7,7 +7,8 @@ import {
   HeartIcon,
   UsersIcon,
   ArrowRightOnRectangleIcon,
-  MusicalNoteIcon
+  MusicalNoteIcon,
+  SparklesIcon
 } from '@heroicons/react/24/outline';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -23,6 +24,7 @@ const Sidebar: React.FC = () => {
   const navItems = [
     { icon: HomeIcon, label: 'Home', path: '/' },
     { icon: MagnifyingGlassIcon, label: 'Search', path: '/search' },
+    { icon: SparklesIcon, label: 'Discover', path: '/recommendations' },
     { icon: RectangleStackIcon, label: 'Your Library', path: '/library' },
   ];
 

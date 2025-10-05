@@ -3,3 +3,5 @@ flask-cors==4.0.0
 requests==2.31.0
 aiotube==1.7.2
 yt-dlp==2023.9.24
+ytmusicapi==1.7.0
+rapidfuzz==3.5.2

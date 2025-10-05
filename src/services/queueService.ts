@@ -1,5 +1,5 @@
 // Queue management service for SpiceZify
-const YOUTUBE_SERVICE_BASE_URL = 'http://localhost:3001/api/youtube';
+const YOUTUBE_SERVICE_BASE_URL = 'http://localhost:5001/api/youtube';
 
 export interface QueueItem {
   id: string;
